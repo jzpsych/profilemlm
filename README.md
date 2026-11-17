@@ -67,6 +67,10 @@ m1
 
 `citation("profilemlm")` gives the reference. Please cite the tutorial when you use the package.
 
+## Development
+
+The package was developed by Johannes Zimmermann. Parts of the code and the documentation were written with the assistance of the large language model Claude (Anthropic) and were reviewed and tested by the author.
+
 ## License
 
 GPL (>= 3). The data sets `wessels_judgments` and `wessels_items` were collected by Nele M. Wessels and colleagues (Wessels et al., 2020, 2025; https://osf.io/s5e6m).
