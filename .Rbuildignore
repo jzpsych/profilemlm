@@ -1,0 +1,16 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^dev$
+^docs$
+^figures$
+^_pkgdown\.yml$
+^pkgdown$
+^README\.Rmd$
+^\.github$
+^[^/]*\.rds$
+^figures_paper$
+^.*\.zip$
+^.*\.tar\.gz$
+^data-raw$
+^LICENSE\.md$
+^\.gitignore$

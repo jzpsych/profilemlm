@@ -1,0 +1,10 @@
+bibentry(
+  bibtype = "Unpublished",
+  title = "Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm",
+  author = c(person("Johannes", "Zimmermann"), person("Nele M.", "Wessels"), person("Richard", "Rau"),
+             person("Nele", "Freyer"), person("Daniel", "Leising")),
+  year = "2026",
+  note = "Manuscript in preparation",
+  url = "https://github.com/jzpsych/profilemlm",
+  header = "To cite profilemlm in publications, please use:"
+)

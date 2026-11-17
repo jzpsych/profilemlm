@@ -1,0 +1,115 @@
+---
+title: "Replication: Model 2.2c of Wessels et al. (2020) With profilemlm"
+author: "Johannes Zimmermann"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{Replication: Model 2.2c of Wessels et al. (2020) With profilemlm}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = TRUE)
+if (!requireNamespace("profilemlm", quietly = TRUE)) pkgload::load_all("..", quiet = TRUE)
+library(profilemlm)
+res <- readRDS(system.file("extdata", "wessels_results.rds", package = "profilemlm"))
+```
+
+> This vignette accompanies Zimmermann, Wessels, Rau, Freyer and Leising (in preparation), *Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm*. It shows that the package reproduces a published Social Accuracy Model exactly: Model 2.2c of Wessels et al. (2020, Table 5). The general tutorial, on simulated data, is `vignette("mpa-tutorial", package = "profilemlm")`.
+
+# 1. What this vignette shows
+
+The model is fitted to 150,072 judgments and takes five to ten minutes, depending on the computer, too long for a vignette that is rebuilt with the package. This vignette therefore shows the code and the *saved* output of the script
+
+```r
+system.file("scripts", "wessels_study2.R", package = "profilemlm")
+```
+
+which you can run yourself (copy it, set `out_dir`, and `source()` it). The script writes the fitted model and a reduced set of results to `out_dir`; the tables shown below are these reduced results, shipped with the package as `system.file("extdata", "wessels_results.rds", package = "profilemlm")`. The results were produced with `r res$session$R`, lme4 `r res$session$lme4` and profilemlm `r res$session$profilemlm` on `r res$session$date`.
+
+The code chunks are the script, in order; the output below each chunk is what the script printed. The code chunks are not run when the vignette is built (`eval = FALSE`), the output chunks are.
+
+# 2. The data
+
+Study 2 of Wessels et al. (2020): 189 targets described themselves on 111 items, and 1,352 informants described the targets on the same items and reported how well they knew (`knowing`, 1–5) and how much they liked (`liking`, 1–5) them. Of the informants, 943 were recruited from the targets' university groups (`type = 0`) and 409 were nominated by the targets (`type = 1`). Wessels et al. (2025) had the 111 items rated for five features (desirability, observability, importance, stability, base rate; 1–10). Both data sets come with the package, reduced to these variables:
+
+```{r data, eval = FALSE}
+library(profilemlm)
+data(wessels_judgments, wessels_items)
+?wessels_judgments                                 # variables, sources, consent
+str(wessels_judgments)
+head(wessels_items)
+```
+
+```{r data-show, echo = FALSE}
+str(wessels_judgments)
+head(wessels_items)
+```
+
+The judgments come as one row per informant × item, with the target's self-rating (`self`) repeated in every row. The criterion source is the set of unique self-ratings, one row per target × item; the judgments are passed with the three informant variables:
+
+```{r prep, eval = FALSE}
+self_long <- unique(wessels_judgments[, c("target", "item", "self")])
+names(self_long)[3] <- "value"
+wj <- wessels_judgments[, c("perceiver", "target", "item", "rating", "knowing", "liking", "type")]
+```
+
+# 3. Reproducing Model 2.2c of Wessels et al. (2020)
+
+The published model (Table 5, Model 2.2c, in Wessels et al., 2020) used the sample mean as normative profile, desirability linearly rescaled from its 1–10 range to the 1–5 range of the ratings and, like knowing and liking, centered at the grand mean, random intercepts and slopes (distinctive, normative, desirability) for perceivers and targets, correlated, no item random effects, and restricted maximum likelihood. `mpa_data()` reads the long format, merges the item features, and detects the one-with-many design:
+
+```{r dA, eval = FALSE}
+dA <- mpa_data(judgments = wj, format = "long", rating_col = "rating",
+               items = wessels_items, criterion = list(self = self_long),
+               norm = "sample", rating_scale = c(1, 5),
+               derive = list(DES.c = ~ (DES - mean(DES)) * 4/9,    # desirability rescaled from 1-10 to 1-5 and centered, as in the paper
+                             knowing.c = ~ knowing - mean(knowing),
+                             liking.c = ~ liking - mean(liking)))
+dA
+```
+
+The messages say what the package did with the data: the long data were cast to wide (1,352 perceiver × target rows), knowing, liking and type were found to be constant within perceivers and registered as perceiver-level predictors, and the design was recognised as one-with-many, so that dyadic random effects are not available.
+
+The published model has no products of desirability with the criterion components, only the cross-level products of the three perceiver variables with the intercept and the three slopes. So `interactions = "none"` and the nine products are given as `extra_terms`. The classical Social Accuracy Model has no item random effects, so `random_units` names perceivers and targets only:
+
+```{r fA, eval = FALSE}
+mods <- c("knowing.c", "liking.c", "type")
+fA <- mpa_formula(dA, criterion = "self", random_slopes = "DES.c", predictors = mods, interactions = "none",
+                  extra_terms = as.vector(outer(c("self.dist", "self.norm.c", "DES.c"), mods, paste, sep = ":")),
+                  random_units = c("perceiver", "target"), correlated = TRUE)
+fA
+mA <- mpa_fit(fA, dA, REML = TRUE)
+```
+
+```{r fA-show, echo = FALSE}
+cat(res$formulas$fA, sep = "\n")
+```
+
+The optimizer matters for this check. With lme4's default optimizer (`nloptwrap`) the fit is singular under some lme4 versions (the target intercept variance goes to zero) and misses the published values in the third decimal. `bobyqa`, the default of `mpa_fit()`, reproduces them exactly, under lme4 1.1-35, 2.0.1, and 2.1-0 alike. The comparison with the published Table 5 (reference values typed in from the printed table):
+
+```{r mA-cmp, eval = FALSE}
+ref <- c("(Intercept)" = 2.567, "self.dist" = 0.134, "self.norm.c" = 0.572, "DES.c" = 0.294,
+         "knowing.c" = 0.015, "self.dist:knowing.c" = 0.026, "self.norm.c:knowing.c" = 0.122, "DES.c:knowing.c" = -0.098,
+         "liking.c" = -0.115, "self.dist:liking.c" = -0.019, "self.norm.c:liking.c" = -0.090, "DES.c:liking.c" = 0.301,
+         "type" = 0.052, "self.dist:type" = 0.074, "self.norm.c:type" = 0.136, "DES.c:type" = -0.131)
+key <- function(x) vapply(strsplit(x, ":", fixed = TRUE), function(z) paste(sort(z), collapse = ":"), character(1))
+cmp <- data.frame(term = mA$fixed$term, profilemlm = round(mA$fixed$estimate, 3),
+                  wessels2020 = ref[match(key(mA$fixed$term), key(names(ref)))])
+print(cmp)
+print(mA$variance)
+```
+
+```{r mA-show, echo = FALSE}
+print(res$mA$cmp, row.names = FALSE)
+print(res$mA$variance)
+```
+
+All 16 fixed effects agree with the published values to three decimals, and so do the nine standard deviations (published: perceiver .190 / .117 / .274 / .282 for intercept / distinctive / normative / desirability; target .059 / .112 / .219 / .153; residual .853). This is a check on the package, and it establishes that the framework contains the Social Accuracy Model as a special case. The tutorial's extensions of this model (item random effects, item features as moderators of agreement) are the subject of a separate empirical paper.
+
+# References
+
+- Wessels, N. M., Zimmermann, J., Biesanz, J. C., & Leising, D. (2020). Differential associations of knowing and liking with accuracy and positivity bias in person perception. *Journal of Personality and Social Psychology, 118*, 149–171.
+- Wessels, N. M., Leising, D., & Zimmermann, J. (2025). A nuanced perspective on how item features are associated with different forms of agreement. *Collabra: Psychology, 11*(1), Article 127423.

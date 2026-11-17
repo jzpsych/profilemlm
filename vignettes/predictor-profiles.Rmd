@@ -1,0 +1,233 @@
+---
+title: "More Than One Predictor Profile: Assumed Similarity and Pairs Designs"
+author: "Johannes Zimmermann"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{More Than One Predictor Profile: Assumed Similarity and Pairs Designs}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+if (!requireNamespace("profilemlm", quietly = TRUE)) pkgload::load_all("..", quiet = TRUE)
+library(profilemlm)
+has_gg <- requireNamespace("ggplot2", quietly = TRUE)
+```
+
+> This vignette accompanies Zimmermann, Wessels, Rau, Freyer and Leising (in preparation), *Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm*. It covers an extension that the article names under *Extensions*, and the standardized effect sizes of `mpa_effect_size()`. The general tutorial is `vignette("mpa-tutorial", package = "profilemlm")`.
+
+# 1. What a predictor profile is
+
+The models of the tutorial contain one profile on the predictor side, the criterion. Its slope is agreement. Some questions need a second profile. The best-known case is assumed similarity (Human & Biesanz, 2011). The second profile is then the perceiver's own self-rating on the same items, and its slope shows whether perceivers ascribe to targets what is distinctive about themselves. Section 2.4 says how this slope differs from the classical index of assumed similarity.
+
+A profile differs from the predictors of the tutorial in one respect. A predictor takes one value per perceiver, target, dyad, or item. A profile takes one value per person *and* item, on the same items as the judgments. The package therefore treats a further profile like the criterion and not like a predictor.
+
+* It enters with its distinctive component only, that is, the deviation from the mean profile. The normative profiles of two profiles on the same items are nearly collinear, so the model keeps the normative profile of the criterion.
+* It gets its own slope, with random slopes at every unit within which it varies. This includes the items.
+* Its slope is reported per scale point, like the slopes of the criterion.
+* With `interactions = "criterion"`, every predictor moderates it, as it moderates normative and distinctive agreement.
+
+In the notation of the article, the level-1 equation gains one term,
+
+$$J_{pti} = b_{0pti} + b_{1pt} N_i + b_{2pti} D_{ti} + b_{3pti} S_{pi} + e_{pti},$$
+
+where $S_{pi}$ is the distinctive profile of perceiver $p$. The slope $b_{3pti}$ has its own level-2 equation with a fixed part, moderators, and random effects of perceivers, targets, dyads, and items. A further profile can also belong to the target, for example a second source of information about the target.
+
+# 2. Assumed similarity
+
+## 2.1 Data
+
+We simulate a half-block design in which 80 perceivers judge four targets each on 24 items. Perceivers and targets also describe themselves. The generating slope of assumed similarity is 0.15, it varies between perceivers with a standard deviation of 0.15, and it increases with the perceiver variable `training` by 0.10 per scale point. `training` also increases normative agreement by 0.15.
+
+```{r sim}
+st <- mpa_simulate(n_perceiver = 80, n_item = 24, group_size = 4, seed = 11,
+                   rating_scale = c(1, 101), resid_sd = 14, output = "objects",
+                   fixed = c(intercept = 51, norm = 0.7, dist = 0.2, similarity = 0.15,
+                             training_norm = 0.15, training_similarity = 0.10),
+                   sd = list(perceiver = c(intercept = 10, norm = 0.25, dist = 0.10, similarity = 0.15),
+                             target    = c(intercept = 2, norm = 0.05, dist = 0.08),
+                             dyad      = c(intercept = 6, norm = 0.20, dist = 0.10),
+                             item      = c(intercept = 3, dist = 0.05)))
+names(st)
+st$perceiver_self[1:3, 1:5]
+```
+
+The perceivers' self-ratings are one more data set, with one row per perceiver and the item columns. They are passed to `mpa_data()` as `profiles`. The name of the list element becomes the name of the profile.
+
+```{r data, message = TRUE}
+dat <- mpa_data(judgments = st$judgments, dyads = st$dyads, targets = st$targets,
+              perceivers = st$perceivers, items = st$items, item_cols = "^item_",
+              criterion = list(self = st$criterion),
+              profiles = list(pself = st$perceiver_self),
+              group = "group", rating_scale = c(1, 101))
+dat <- mpa_sim_attach(dat, st)          # keeps the generating values for mpa_recovery()
+dat
+```
+
+If the self-ratings are columns of the `perceivers` file, write `profiles = list(pself = "perceivers")`. The data now contain `pself` (the self-rating), `pself.norm` (the mean self-rating of the other perceivers on the item), and `pself.dist` (their difference, scaled like `self.dist`).
+
+## 2.2 Model
+
+`mpa_formula()` takes the profile by name.
+
+```{r formula}
+f <- mpa_formula(dat, criterion = "self", profiles = "pself", predictors = "training",
+                 interactions = "criterion", correlated = FALSE)
+f
+```
+
+The fixed part contains the slope of `pself.dist` and its moderation by `training`. The random part gives `pself.dist` a slope at all four units. Entering `pself.dist` as a predictor is refused, because the package would then form the wrong products and would not rescale the slope.
+
+```{r fit}
+m <- mpa_fit(f, dat, check_derivs = FALSE)
+m$singular
+f <- mpa_prune(m)                   # drops variance components estimated as zero
+m <- mpa_fit(f, dat)
+m
+```
+
+## 2.3 Results
+
+The estimates are close to the generating values.
+
+```{r recovery}
+mpa_recovery(m)$fixed[, c("term", "true", "estimate", "se")]
+```
+
+Perceivers ascribed to targets what was distinctive about themselves, over and above the normative profile and the targets' self-ratings. This tendency was stronger for perceivers with more training.
+
+```{r plot, eval = has_gg, fig.width = 5, fig.height = 3.5}
+mpa_plot(m, slope = "pself.dist", x = "training",
+         labels = c(pself.dist = "Assumed similarity", training = "Training"))
+```
+
+## 2.4 How to read the slope
+
+The slope of the perceiver's distinctive profile is a partial slope. The model also contains the normative profile and the target's distinctive profile. Three points follow.
+
+* The slope is assumed similarity beyond actual similarity (Kenny & Acitelli, 2001). Human and Biesanz (2011, p. 350) define it in this way, as the tendency to project onto others what makes the perceiver different from the specific target and from the average person. It is not the classical index, which compares the judgments with the perceiver's self-description without these controls (Cronbach, 1955). That index is also high when perceiver and target are in fact alike, or when both resemble the average person.
+* The meaning of distinctive agreement changes as well. With the perceiver's profile in the model, the slope of the target's distinctive profile is agreement beyond what the similarity between perceiver and target accounts for. A perceiver who describes a similar target correctly by describing themselves gets no credit for it.
+* The source of the perceiver's profile matters. When the same person provides the judgments and the self-ratings, the slope also reflects that person's way of using the items. Human and Biesanz (2011) therefore used a composite of self-ratings and ratings by knowledgeable informants. Any profile that is keyed by perceiver can be passed to `profiles`, also such a composite.
+
+## 2.5 A note on round-robin designs
+
+In a round-robin design every person is perceiver and target, and the perceivers' self-ratings are the criterion profiles of the same persons. `mpa_data()` builds the profile in the same way there. The package does not model the dependencies that are specific to round-robin data, however, such as the correlation between a person's effects as perceiver and as target. Assumed similarity in round-robin data is therefore a topic for a later version.
+
+# 3. A pairs design: former and current partners
+
+The decomposition into a normative and a distinctive part is not tied to judgments of other persons. Park and MacDonald (2019) asked whether people have a "type". Their data came from 332 persons, their former partner, and their current partner. All three described themselves on 21 items. The profile of the current partner was regressed on the normative profile, the distinctive profile of the former partner, and the person's own distinctive profile. Current partners resembled former partners beyond the norm (*b* = 0.22) and beyond their resemblance to the person (*b* = 0.20).
+
+In the terms of the package, the current partner's profile takes the place of the judgments, the former partner's profile is the criterion, and the person's own profile is a further profile. Each person contributes one pair of partners. Perceiver, target, and dyad are then the same unit, and one set of person-level random effects remains.
+
+The original data cannot be shipped with the package. We simulate data of the same size with the published coefficients as generating values. The person's extraversion weakens the slope of the former partner's profile by 0.05 per standard deviation.
+
+```{r pairs-sim}
+set.seed(2019)
+n <- 332; k <- 21
+items  <- sprintf("item_%02d", 1:k)
+norm_i <- rnorm(k, 3.4, 0.6)                                   # normative profile
+profile <- function() matrix(norm_i, n, k, byrow = TRUE) + matrix(rnorm(n * k, 0, 0.9), n, k)
+person <- profile(); former <- profile()                       # self-ratings
+dev <- function(x) sweep(x, 2, colMeans(x))                    # distinctive profiles
+extraversion <- rnorm(n)
+b0 <- 3.4  + rnorm(n, 0, 0.25)
+b1 <- 0.53 + rnorm(n, 0, 0.25)                                 # normative profile
+b2 <- 0.22 + rnorm(n, 0, 0.25) - 0.05 * extraversion           # former partner
+b3 <- 0.20 + rnorm(n, 0, 0.20)                                 # person
+current <- b0 + b1 * matrix(norm_i - mean(norm_i), n, k, byrow = TRUE) +
+  b2 * dev(former) + b3 * dev(person) + matrix(rnorm(n * k, 0, 0.85), n, k)
+colnames(current) <- colnames(person) <- colnames(former) <- items
+id <- sprintf("p%03d", 1:n)
+partners <- data.frame(person = id, former = paste0("f", id), current)   # one row per pair
+formers  <- data.frame(former = paste0("f", id), former)
+persons  <- data.frame(person = id, extraversion = extraversion, person)
+```
+
+The person takes the role of the perceiver and the former partner the role of the target. This only names the two identifiers; nobody judges anybody here.
+
+```{r pairs-data, message = TRUE}
+dp <- mpa_data(judgments = partners, targets = formers, perceivers = persons,
+               id = c(perceiver = "person", target = "former"), item_cols = "^item_",
+               criterion = list(former = "targets"), profiles = list(own = "perceivers"),
+               norm = "sample", criterion_scale = 1)
+attr(dp, "mpa")$design$type
+```
+
+Park and MacDonald (2019) estimated random effects of persons only. `random_units = "perceiver"` gives this model.
+
+```{r pairs-fit, message = TRUE}
+fp <- mpa_formula(dp, criterion = "former", profiles = "own", predictors = "extraversion",
+                  interactions = "criterion", random_units = "perceiver", correlated = FALSE)
+fp
+mp <- mpa_fit(fp, dp)
+mp$fixed
+mp$variance
+```
+
+With the default `random_units`, the model also contains the items as a random factor. `mpa_formula()` then says that it keeps one person-level unit.
+
+```{r pairs-items, message = TRUE}
+fi <- mpa_formula(dp, criterion = "former", profiles = "own", predictors = "extraversion",
+                  interactions = "criterion", correlated = FALSE)
+mi <- mpa_fit(fi, dp, check_derivs = FALSE)
+mi$variance
+```
+
+The simulated items differ only in their intercepts, so the item slopes are estimated near zero and the fixed effects do not change. In real data the item slopes show whether the resemblance between partners holds for all items alike.
+
+# 4. Standardized effect sizes
+
+`mpa_effect_size()` expresses main and moderating effects as *d*.
+
+```{r es}
+mpa_effect_size(mp)
+```
+
+The numerator is the change in the intercept or slope across two standard deviations of the predictor (Gelman, 2008). For a predictor with two values it is the difference between the two groups. The denominator is the standard deviation of that intercept or slope across the units on which the predictor is measured.
+
+| Predictor | Denominator: SD of the intercept or slope across |
+|---|---|
+| Perceiver variable | perceivers |
+| Target variable | targets |
+| Relationship component of a decomposed dyadic variable | dyads |
+| Dyadic variable that was not decomposed | perceivers, targets, and dyads together |
+| Item property | items |
+| Perceiver variable in a one-with-many design | perceivers and targets together (perceivers are nested in targets) |
+| Any variable in a pairs design | persons |
+
+The value reads like Cohen's *d* for two equally large groups of units. Persons two standard deviations apart in extraversion differ in the slope of the former partner's profile by `r sprintf("%.2f", abs(mpa_effect_size(mp)$d[3]))` standard deviations of that slope. The generating value, 2 × 0.05 / 0.25 = 0.40, lies within the interval. This is the effect size that Park and MacDonald (2019) and other studies with the Social Accuracy Model report (e.g., Human & Biesanz, 2011; Wessels et al., 2020; Zimmermann et al., 2018). For a dyadic variable that was not decomposed, Zimmermann et al. (2018, supplement) define the denominator in the same way, as the square root of the summed perceiver, target, and dyad variances of the slope. They scaled a binary manipulation by two standard deviations. `mpa_effect_size()` takes the difference between the two values instead, as Gelman (2008) recommends for binary predictors, which gives the same *d* when the two groups are equally large.
+
+Three points help to read *d*.
+
+* The model contains the predictor, so the denominator is the residual standard deviation, the variation among units that share a value of the predictor. *d* is tied to the proportion of variance that the predictor explains at its level, $r^2$ (the `prop_reduced` of `mpa_compare()`), by $d = 2r / \sqrt{1 - r^2}$.
+* *d* is `NA` when the variance component is not in the model or was estimated as zero. A variance component that is estimated too small makes *d* too large. *d* should be read together with the precision of the variance estimate.
+* The interval is the interval of the fixed effect on the scale of *d*. It treats the denominator as known.
+
+`denominator = "total"` divides by the standard deviation of the slope across all judgments, that is, across all units together (for main effects with the residual variance, cf. Westfall et al., 2014). This *d* is smaller and does not depend on the level of the predictor.
+
+```{r es-total}
+mpa_effect_size(m)
+mpa_effect_size(m, denominator = "total")
+```
+
+# References
+
+Cronbach, L. J. (1955). Processes affecting scores on "understanding of others" and "assumed similarity." *Psychological Bulletin, 52*(3), 177–193. https://doi.org/10.1037/h0044919
+
+Gelman, A. (2008). Scaling regression inputs by dividing by two standard deviations. *Statistics in Medicine, 27*(15), 2865–2873. https://doi.org/10.1002/sim.3107
+
+Human, L. J., & Biesanz, J. C. (2011). Through the looking glass clearly: Accuracy and assumed similarity in well-adjusted individuals' first impressions. *Journal of Personality and Social Psychology, 100*(2), 349–364. https://doi.org/10.1037/a0021850
+
+Kenny, D. A., & Acitelli, L. K. (2001). Accuracy and bias in the perception of the partner in a close relationship. *Journal of Personality and Social Psychology, 80*(3), 439–448. https://doi.org/10.1037/0022-3514.80.3.439
+
+Park, Y., & MacDonald, G. (2019). Consistency between individuals' past and current romantic partners' own reports of their personalities. *Proceedings of the National Academy of Sciences, 116*(26), 12793–12797. https://doi.org/10.1073/pnas.1902937116
+
+Wessels, N. M., Zimmermann, J., Biesanz, J. C., & Leising, D. (2020). Differential associations of knowing and liking with accuracy and positivity bias in person perception. *Journal of Personality and Social Psychology, 118*(1), 149–171. https://doi.org/10.1037/pspp0000218
+
+Westfall, J., Kenny, D. A., & Judd, C. M. (2014). Statistical power and optimal design in experiments in which samples of participants respond to samples of stimuli. *Journal of Experimental Psychology: General, 143*(5), 2020–2045. https://doi.org/10.1037/xge0000014
+
+Zimmermann, J., Schindler, S., Klaus, G., & Leising, D. (2018). The effect of dislike on accuracy and bias in person perception. *Social Psychological and Personality Science, 9*(1), 80–88. https://doi.org/10.1177/1948550617703167

@@ -1,0 +1,38 @@
+Package: profilemlm
+Title: Multilevel Profile Analysis of Person Judgment Data
+Version: 1.0.0
+Authors@R: c(
+    person("Johannes", "Zimmermann", role = c("aut", "cre"), email = "johannes.zimmermann@uni-kassel.de",
+           comment = c(ORCID = "0000-0001-6975-2356")),
+    person("Nele M.", "Wessels", role = "dtc",
+           comment = c(ORCID = "0000-0003-0259-0713", "data sets wessels_judgments and wessels_items")))
+Description: Prepares, fits, compares and visualises multilevel profile analyses of
+    person judgment data: cross-classified linear mixed-effects models in the tradition
+    of the Social Accuracy Model (Biesanz, 2010) in which judgment profiles are
+    regressed on the normative and distinctive components of a criterion profile,
+    with random effects for perceivers, targets, dyads and items, and with item,
+    perceiver, target and dyadic predictors of profile agreement. Further predictor
+    profiles (e.g., the perceivers' self-ratings, for assumed similarity) and designs
+    with unconnected pairs are supported. Includes data
+    preparation from survey exports and tidy input objects, design detection,
+    identifiability-aware formula construction, random-effects diagnostics,
+    marginal-effect plots, standardized effect sizes, a simulation function and the
+    data of Wessels et al.
+    (2020, 2025), Study 2. Models are estimated by maximum likelihood with lme4 or,
+    with the same formulas and the same output tables, by Bayesian sampling with brms.
+License: GPL (>= 3)
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1
+Depends: R (>= 4.1)
+LazyData: true
+Imports: lme4, parallel, stats, utils
+Suggests: brms (>= 2.20.0), cmdstanr, emmeans, ggplot2, knitr,
+        lmerTest, loo, patchwork, pkgload, posterior, readxl, reformulas,
+        rmarkdown, rstan, testthat (>= 3.0.0)
+Additional_repositories: https://stan-dev.r-universe.dev
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+URL: https://github.com/jzpsych/profilemlm
+BugReports: https://github.com/jzpsych/profilemlm/issues
+NeedsCompilation: no

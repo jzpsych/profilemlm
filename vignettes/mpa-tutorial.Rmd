@@ -1,0 +1,542 @@
+---
+title: "Multilevel Profile Analysis of Person Judgment Data: A Step-by-Step Tutorial"
+author: "Johannes Zimmermann"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{Multilevel Profile Analysis of Person Judgment Data: A Step-by-Step Tutorial}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4.5, warning = TRUE, message = FALSE)
+if (!requireNamespace("profilemlm", quietly = TRUE)) pkgload::load_all("..", quiet = TRUE)
+has_plots <- requireNamespace("ggplot2", quietly = TRUE) && requireNamespace("patchwork", quietly = TRUE)
+library(profilemlm)
+## helpers for the numbers quoted in the text
+fx  <- function(m, term, what = "estimate", d = 2) formatC(m$fixed[[what]][m$fixed$term == term], digits = d, format = "f")
+vsd <- function(m, unit, effect = "(Intercept)", d = 2) formatC(m$variance$sd[m$variance$unit == unit & m$variance$effect == effect], digits = d, format = "f")
+pct <- function(cmp, unit, effect = "(Intercept)") { v <- cmp$variance; round(100 * v$prop_reduced[v$unit == unit & v$effect == effect]) }
+lrt <- function(cmp) sprintf("chi-square(%d) = %.1f, p %s", cmp$lrt$df, cmp$lrt$chisq, if (cmp$lrt$p < .001) "< .001" else paste("=", sub("^0", "", formatC(cmp$lrt$p, digits = if (cmp$lrt$p < .01) 3 else 2, format = "f"))))
+```
+
+> Terms in *italics* on first use are explained in the glossary at the end. This vignette accompanies Zimmermann, Wessels, Rau, Freyer and Leising (in preparation), *Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm*.
+
+# 0. What this vignette is, and getting started
+
+The paper explains the method and shows the calls and results that carry the argument. This vignette runs the same analysis of the same simulated data from start to finish, with every call and every output, so that you can follow along in R, compare your output with ours, and copy the code for your own data. The numbers in the text are computed from the output when the vignette is built, so text and output agree. Section 11 holds a template for your own data.
+
+**Installation.** The package is installed from its GitHub repository (<https://github.com/jzpsych/profilemlm>), with its dependencies, from R:
+
+```{r, eval = FALSE}
+install.packages(c("lme4", "ggplot2", "patchwork", "knitr", "rmarkdown", "remotes"))   # once; add "brms" for the Bayesian engine
+remotes::install_github("jzpsych/profilemlm", build_vignettes = TRUE)   # needs the package remotes
+library(profilemlm)
+vignette("mpa-tutorial", package = "profilemlm")           # this document
+?mpa_data                                                 # help pages
+```
+
+lme4 is required; ggplot2 and patchwork are needed for the figures in Sections 6 to 8 only; brms (with cmdstanr or rstan) only for the Bayesian engine of Section 12. The three example files used below are installed with the package in `system.file("extdata", package = "profilemlm")`; and `system.file("scripts", "template_own_data.R", package = "profilemlm")` is a commented template for the five steps on your own files (Section 11).
+
+**Functions at a glance.** The analysis uses a small set of functions. Each has a help page (`?mpa_formula` etc.).
+
+| Function | What it does | Main arguments |
+|---|---|---|
+| `mpa_data()` | reads judgments, criterion and predictors as a study produces them, builds the normative and distinctive profiles, registers the level of each predictor and detects the design | `judgments`, `format`, `targets`, `perceivers`, `items`, `criterion`, `norm`, `center_norm`, `rescale`, `decompose`, `profiles` |
+| `mpa_formula()` | builds the model formula from arguments | `criterion`, `predictors`, `random_slopes`, `interactions`, `poly`, `random_units`, `correlated`, `random_structure`, `profiles` |
+| `mpa_update()` | changes the random part of a formula: adds or drops random terms, switches the correlations on or off | `drop`, `add`, `correlated` |
+| `mpa_fit()` | estimates a model with lme4 or brms and returns the tables of fixed effects and variance components | `engine`, `start_from` |
+| `mpa_prune()` | removes random terms whose variance was estimated as zero (or, with `mpa_random_test()`, by deletion tests) | a fit, or a formula and a test |
+| `mpa_random_test()` | single-term deletion tests of the random effects (lme4 only) | `cores` |
+| `mpa_compare()` | compares two models: likelihood-ratio test, ΔAIC, ΔBIC and the proportional reduction of every variance component | two fits |
+| `mpa_effect_size()` | standardized effect sizes *d* of main and moderating effects | `denominator` |
+| `mpa_plots()`, `mpa_plot()` | draw agreement slopes as functions of the moderators | `hold`, `labels` |
+| `mpa_simulate()` | generates data from the model, for examples and for planning a study | `n_perceiver`, `n_item`, `group_size`, `design`, `fixed`, `sd` |
+| `mpa_recovery()` | compares the estimates of a model fitted to simulated data with the generating values | a fit to data from `mpa_simulate()` |
+
+# 1. What multilevel profile analysis does
+
+Ask several people to describe someone they know — a colleague, a friend, a fellow student — on a list of trait adjectives, and their descriptions will resemble that person's self-description to some degree, and each other's. How much they resemble it depends on who is judging (some perceivers are better judges), on who is judged (some targets are easier to read), on the relationship between the two (acquaintance, liking) and on what is judged: observable and neutral characteristics are described with more agreement than hidden or evaluatively loaded ones. Multilevel profile analysis is the method for studying all of these influences at once.
+
+Its starting point is that such data have a *profile* structure: for every perceiver–target pair — every *dyad* — there is a vector of judgments across items, and for every target there is a corresponding vector of *criterion* values — self-ratings, informant ratings, behavioural measures — against which the judgments are compared. Multilevel profile analysis (MPA), in the tradition of the Social Accuracy Model (SAM; Biesanz, 2010), regresses the judgment profile on the criterion profile within each dyad and lets the resulting *profile agreement* coefficients vary across perceivers, targets and dyads.
+
+Readers used to regression should note a peculiarity: the criterion is not the dependent variable here. The judgments are; the criterion profile is a *predictor*, and its regression slope is the agreement coefficient.
+
+Two features of the criterion profile are separated. The **normative profile** is the average criterion profile across targets: what people are like in general. The **distinctive profile** is a target's deviation from that average: what makes this target different. Agreement with the first is *normative agreement*, agreement with the second *distinctive agreement*. We deliberately speak of a criterion and of agreement rather than of truth and accuracy: whether a criterion can be taken as the truth about a target — and agreement with it as accuracy — is a validity question that requires its own argument (Funder, 1995). Where that argument can be made, the criterion becomes a truth variable in the sense of West and Kenny (2011) and the agreement coefficients become accuracy coefficients; the analysis does not change.
+
+Formally, judgment $J_{pti}$ of perceiver $p$ about target $t$ on item $i$ is modelled as
+
+$$
+J_{pti} = b_{0pti} + b_{1pt}\,N_i + b_{2pti}\,D_{ti} + e_{pti},
+$$
+
+where $N_i$ is the (centered) normative profile and $D_{ti} = C_{ti} - N_i$ the distinctive profile, the deviation of the criterion $C_{ti}$ from the norm. Each coefficient is the sum of a fixed effect and random deviations for the perceiver, the target and the dyad; the intercept $b_0$ and the distinctive slope $b_2$ also have an item deviation, hence their index $i$. Items enter as a further *crossed random factor*: every item is judged by every perceiver about every target, so item effects are crossed with (not nested in) perceivers, targets and dyads. The item random intercept is the extent to which an item is judged higher or lower, across all perceivers and targets, than the normative profile predicts. If perceivers describe targets in general as friendlier than the targets' average self-rating suggests, the item *friendly* has a positive intercept. The item random slope for the distinctive component is the extent to which distinctive agreement on an item is higher or lower than on the average item — some items are simply judged with more agreement than others, over and above what their measured properties explain. The normative slope $b_1$ has no item deviation: because $N_i$ takes one value per item, such a deviation could not be distinguished from the item intercept. This is the *base model* (Equation 1 of the paper), fitted in Step 1 below. Statistically these are cross-classified linear mixed-effects models. We call the approach multilevel profile analysis because the name places the model in the framework of profile analysis (Borkenau & Leising, 2016; Furr, 2008) and makes no claim about accuracy; it is unrelated to latent profile analysis, which sorts persons into classes.
+
+## The steps
+
+The tutorial is organised in five steps, numbered 0 to 4 because the first one fits no predictors at all. Steps 0 and 1 establish the base model; Steps 2–4 add *predictors* — variables at one of four levels: **items** (e.g., desirability), **perceivers** (e.g., training), **targets** (e.g., talkativeness) and **dyads** (e.g., acquaintance). A predictor can have two kinds of effects. A *main effect* changes the level of the judgments (for instance, judgments of better-known targets are higher, whatever the criterion says); a *moderating effect* changes profile agreement (for instance, agreement is higher for better-acquainted dyads). Both are estimated in the same model; only the second makes the variable a moderator. (In the Truth and Bias model of West and Kenny, 2011, main effects correspond to bias forces once the criterion is accepted as the truth; we do not presuppose that.) The order of the steps follows the levels, not a logical necessity — one can study perceiver variables without item properties. Each step below opens with its question, shows the call, and reads the output.
+
+| Step | Question | Model terms added |
+|---|---|---|
+| 0 | Where is the variance? | random intercepts for perceivers, targets, dyads and items; no predictors |
+| 1 | How strong are normative and distinctive agreement, and how much do they vary? | $b_1 N + b_2 D$ with random slopes, plus the item slope: the base model (the SAM, plus items as a random factor) |
+| 2 | Do item properties have main effects on the judgments? | $b_3 X$ for an item property $X$, with random slopes for perceivers, targets and dyads |
+| 3 | Do item properties moderate agreement? | $X \times N$ and $X \times D$ |
+| 4 | Do perceiver, target or dyad-level variables have main and/or moderating effects? | the same three terms for each further predictor |
+
+# 2. Data
+
+The tutorial uses simulated data, so that every estimate can be compared with the value that generated it (Section 9).
+
+## 2.1 The input files
+
+The analysis starts from data as they come out of a study, with as little pre-processing as possible. A typical study produces three files:
+
+1. **The perceiver survey** (`perceiver_survey.csv`): one row per perceiver. Survey software usually *loops* the same block of questions over the targets a perceiver judges, so the export has one column set per loop — here `t1_id`, `t1_know`, `t1_item_01`, …, `t2_id`, … — where `t1_id` records which target was shown in the first loop, `t1_know` a dyad-level question asked about that target (acquaintance), and `t1_item_01` … the judgments. Perceiver-level variables (here `training`, and the study `group`) are ordinary columns.
+2. **The target survey** (`target_survey.csv`): one row per target with the self-ratings on the same items — the *criterion* from which normative and distinctive profiles are computed (the package computes them; they must not be in the input) — and target-level variables (here `talkativeness`).
+3. **Item properties** (`items.csv`): one row per item, usually from a separate norming study (here desirability, `des`).
+
+Identifiers link the files: `perceiver`, `target` and the item names. Our example data are simulated: 48 perceivers in groups of 8, each judging the 8 targets of their group on 30 items with a 1–101 rating scale. The files are installed with the package, so they are read like any other data files:
+
+```{r}
+path <- system.file("extdata", package = "profilemlm")
+perceiver_survey <- read.csv(file.path(path, "perceiver_survey.csv"))
+target_survey    <- read.csv(file.path(path, "target_survey.csv"))
+items            <- read.csv(file.path(path, "items.csv"))
+perceiver_survey[1:3, 1:8]
+target_survey[1:3, 1:5]
+head(items, 3)
+```
+
+They were created once with `mpa_simulate()`, which takes the fixed effects and the random-effect standard deviations of the model and writes the three files a study would produce. You do not need to run this call to follow the tutorial; we repeat it here (without writing files) because it documents the generating values and because Section 9 needs the simulation objects it returns:
+
+```{r}
+sim_objects <- mpa_simulate(
+  n_perceiver = 48, n_item = 30, group_size = 8, seed = 2026,
+  norm_sd = 12, dist_sd = 10, des_norm_cor = 0.5,
+  fixed = c(intercept = 51, norm = 0.6, dist = 0.15, des = 6, des_dist = -0.1,
+            know_dist = 0.08, training_dist = 0.08, talkativeness = 3),
+  sd = list(perceiver = c(intercept = 8, norm = 0.25, dist = 0.08, des = 3),
+            target    = c(intercept = 2, norm = 0.05, dist = 0.06),
+            dyad      = c(intercept = 5, norm = 0.15, dist = 0.08),
+            item      = c(intercept = 3, dist = 0.04)),
+  resid_sd = 12, rating_scale = c(1, 101), output = "study")
+```
+
+Other layouts are handled as well: one row per dyad (`format = "wide"`), one row per rating (`format = "long"`), several rater types in one file distinguished by a `role` column (self-ratings and informant ratings as criterion sources), and separate tidy files per level (`dyads`, `perceivers`, `targets`).
+
+## 2.2 Building the analysis data set
+
+`mpa_data()` unfolds the loops, merges the files into one long data set (one row per perceiver × target × item), computes the normative and distinctive profiles, centers and rescales, detects at which level each variable varies, and detects the design.
+
+```{r, message = TRUE}
+dat <- mpa_data(judgments = perceiver_survey, format = "loop", loop_id = "id",
+              targets = target_survey, items = items, item_cols = "^item_",
+              criterion = list(self = "targets"), group = "group",
+              rating_scale = c(1, 101), norm = "loo")
+dat
+```
+
+The messages of `mpa_data()` report the level at which each predictor was registered, and printing `dat` shows the design, the criterion and how the normative profile was computed: `des`, read from the item file, is an item-level variable; `know`, which was asked once per loop, a dyad-level variable; `training` was recognised as a perceiver-level variable (constant within perceivers) and `talkativeness` as target-level. (`self.sd`, the spread of the self-ratings across targets on each item, is computed by the package; it is a further item property, see the Extensions of the paper.) Four decisions are worth knowing about, even though the package takes care of them:
+
+**Normative profiles are computed leave-one-out** (`norm = "loo"`): the norm a target's distinctive profile is compared against excludes that target's own criterion values. With the plain sample mean (`norm = "sample"`), each target's own values enter the norm with weight $1/n$, so part of what is distinctive about the target would be counted as normative; with 48 targets the difference is small, with few targets or norms computed within subgroups it is not (see the paper, section *Designs, Data, and the Package*). Published SAM analyses have mostly used the sample mean.
+
+**The distinctive profile is a difference**, $D = C - N$, criterion minus norm. An intuitive alternative would be to enter the raw criterion $C$ next to the normative profile. With correlated random slopes both versions fit the data equally well and give the same distinctive coefficient, but the coefficient of $N$ means something different: because $b_1 N + b_2 D = (b_1 - b_2)\,N + b_2 C$, in the alternative it is normative agreement *beyond* what follows from distinctive agreement. Normative coefficients from studies that entered the raw criterion are therefore not directly comparable with ours. The equivalence breaks down once the random-effect correlations are fixed at zero, as in the models from Section 4.2 on: a zero correlation between the slopes of $N$ and $D$ is a different assumption than a zero correlation between the slopes of $N$ and $C$, so the two versions are then different models. We use $D$ because its assumption concerns the two quantities the analysis is about.
+
+**Centering and rescaling.** The normative profile is centered at its mean across items (`center_norm = "grand_mean"`), so the intercept is the expected judgment for an average item and perceiver differences in intercepts reflect *elevation*. Predictors are rescaled to −1…+1, where −1 and +1 are the theoretical minimum and maximum of their scales and 0 the midpoint (`rescale`; our simulated predictors already have that range). This gives all predictors one unit, half the scale range, and makes 0 a point with a meaning of its own. That matters once interaction terms enter the model: every lower-order effect is then the effect at 0 of the predictors it interacts with — in Step 4, the distinctive-agreement slope is the slope at the midpoints of the acquaintance and training scales.
+
+**Scaling of the criterion components.** Criterion profiles live on the rating scale (1–101), predictors on −1…+1. For estimation, the package divides the criterion components by half the rating range (here 50), which keeps all predictors on comparable scales and speeds up the optimiser. This is a pure *reparameterisation*: all results are reported per criterion point.
+
+```{r}
+summary(dat)
+```
+
+The summary also reports the item-level correlation between the normative profile and item properties — here `r formatC(cor(tapply(dat$self.norm, dat$item, mean), tapply(dat$des, dat$item, mean)), digits = 2, format = "f")` between what people are like on average and how desirable the items are. Normative and desirable are not the same thing, but they are correlated for good reasons (people are, on average, more like desirable than undesirable descriptions), and Step 2 shows how the model handles this. The same table reports the correlations of the item SD of the criterion (`self.sd`) with the item properties; this "item variance" is the strongest item-level correlate of self–other agreement in large questionnaire studies (de Vries et al., 2016), and it can be entered like any other item property.
+
+**The generating values.** Because the data are simulated, we know the truth. `mpa_sim_attach()` attaches the generating parameters to the analysis data set and `mpa_sim_parameters()` lists them in the terms of the model: the fixed effects and the random-effect SDs per unit.
+
+```{r}
+dat_sim <- mpa_sim_attach(dat, sim_objects)
+mpa_sim_parameters(dat_sim)
+```
+
+Keep this list at hand. In Steps 0 to 3 the model is still incomplete, so its estimates are expected to deviate from these values; the deviations show what the predictors that are added later absorb (the normative slope in Step 1, for example, still contains the effect of desirability). Section 9 compares the complete model of Step 4 with the list.
+
+## 2.3 Design detection
+
+When building `dat`, `mpa_data()` also inspected who rated whom, because the design determines which random effects can be estimated. Random effects for dyads can be separated from perceiver and target effects only if perceivers rate several targets *and* targets are rated by several perceivers (half-block or round-robin designs); in a one-with-many design (each perceiver rates one target) they cannot, and `mpa_formula()` omits them by default. Separating dyad effects from residual error additionally requires several items per dyad — there must be a profile. `mpa_design(dat)` shows what was detected (for the numbers of targets per perceiver and perceivers per target, the minimum and maximum):
+
+```{r}
+str(mpa_design(dat)[c("type", "n_group", "targets_per_perceiver", "perceivers_per_target", "dyad_re_identifiable")])
+```
+
+# 3. Step 0: Where is the variance?
+
+The intercept-only model shows how the judgment variance is distributed across perceivers, targets, dyads and items before any predictor is entered. It is the reference for everything that follows: what the criterion profile and the predictors explain is read as a reduction of these components.
+
+```{r}
+f0 <- mpa_formula(dat, criterion = NULL)
+f0
+m0 <- mpa_fit(f0, dat)
+v0 <- m0$variance
+data.frame(unit = v0$unit, variance = round(v0$variance, 1), share = round(v0$variance / sum(v0$variance), 3))
+```
+
+```{r, include = FALSE}
+sh <- round(100 * v0$variance / sum(v0$variance))
+names(sh) <- v0$unit
+```
+
+Items account for `r sh[["item"]]` % of the judgment variance, perceivers for `r sh[["perceiver"]]` %, targets for `r sh[["target"]]` %, dyads for `r sh[["perceiver:target"]]` %, and `r sh[["Residual"]]` % is residual. In real adjective data the item component is often larger still — items differ greatly in how people are described on average. That item variance is exactly what the normative profile will explain in Step 1. Perceiver variance in intercepts (elevation) is usually the next largest component; in Social Relations Model analyses of trait judgments, perceiver effects on the mean level are routinely substantial.
+
+# 4. Step 1: How strong are normative and distinctive agreement, and how much do they vary?
+
+Step 1 fits the base model. This is the Social Accuracy Model (Biesanz, 2010) with one addition: items enter as a crossed random factor (`"item"` is part of the default `random_units`), with a random intercept and a random slope for the distinctive component. The intercept models item-level variation in the judgments that the normative profile does not capture; the slope models item-level variation in distinctive agreement. Both are needed for conclusions to generalise to the population of items (Judd, Westfall, & Kenny, 2012): if the item slope is left out, the standard errors of every item property × criterion term in Step 3 are computed as though the judgments, not the items, were the units of that inference, and they come out too small (in the simulated data, 0.023 instead of 0.029 for the desirability moderation of Step 3; with the larger item variation of real adjective data, the difference is larger). In 200 simulated data sets of this design without a true moderation, the test of the moderation was significant in 4% of the data sets with the item slope and in 8% without it, and in 4% versus 22% when the item-level SD was doubled (script `sim_item_slope.R`). The normative profile and item properties take one value per item and therefore get no item slope; `mpa_formula()` drops them and says so.
+
+## 4.1 Fixed effects and variance components
+
+`mpa_formula()` turns arguments into the model formula. `criterion` names the criterion source whose normative and distinctive components enter the model. `predictors` names further predictors with main effects, `random_slopes` those whose main effects also get random slopes, and `interactions` says which moderating effects to include (Steps 2 to 4). `random_units` names the units that get random effects, by default perceivers, targets, dyads and items. For the base model, the criterion is all that has to be given. Printing the formula object shows what was built: the complete model formula in lme4 syntax, the criterion and its two components, and, for every unit, the random effects it receives. The last lines list the random slopes that were not formed because the term does not vary within the unit, here the item slope of the normative profile.
+
+```{r}
+f1 <- mpa_formula(dat, criterion = "self")
+f1
+m1 <- mpa_fit(f1, dat)
+m1
+```
+
+The fixed effects are the average normative and distinctive agreement slopes, in judgment points per criterion point: `r fx(m1, "self.norm.c")` (SE `r fx(m1, "self.norm.c", "se")`) and `r fx(m1, "self.dist")` (SE `r fx(m1, "self.dist", "se")`), against generating values of 0.60 and 0.15. The variance components describe how much intercepts and slopes vary across units: the perceiver rows are individual differences (in elevation, normative and distinctive agreement), the dyad rows relationship-specific agreement, the target rows differences in how "judgable" targets are, and the item rows item-level differences in elevation and in distinctive agreement.
+
+Variances of intercepts and slopes are on different metrics and should not be compared with each other. Read slope variances through their standard deviations relative to the fixed effect — a line of arithmetic the output does not do for you: with an average distinctive slope of $b$ and a perceiver SD of $s$, roughly 95 % of perceivers have slopes between $b - 2s$ and $b + 2s$, here between `r formatC(as.numeric(fx(m1, "self.dist")) - 2 * as.numeric(vsd(m1, "perceiver", "self.dist", 3)), digits = 2, format = "f")` and `r formatC(as.numeric(fx(m1, "self.dist")) + 2 * as.numeric(vsd(m1, "perceiver", "self.dist", 3)), digits = 2, format = "f")`:
+
+```{r}
+b <- m1$fixed$estimate[m1$fixed$term == "self.dist"]
+s <- m1$variance$sd[m1$variance$unit == "perceiver" & m1$variance$effect == "self.dist"]
+round(c(lower = b - 2 * s, upper = b + 2 * s), 2)
+```
+
+The dyad-level SD of the distinctive slopes (`r vsd(m1, "perceiver:target", "self.dist")`) is as large as the perceiver-level SD: relationships differ in distinctive agreement as much as perceivers do. Step 4 asks whether acquaintance explains these differences. Random-effect correlations are only defined among effects that vary over the same unit (e.g., a perceiver's elevation and her normative slope); note the target-level SD of the normative slopes, `r vsd(m1, "target", "self.norm.c", 3)`, which is almost zero (the generating value was 0.05) — this returns in Section 4.2.
+
+Comparing with Step 0:
+
+```{r}
+cmp01 <- mpa_compare(m0, m1)
+cmp01
+```
+
+`prop_reduced` is the proportion of each Step-0 variance component that the new predictors explain (an upper bound of 1). The normative profile explains `r pct(cmp01, "item")` % of the item-intercept variance and `r pct(cmp01, "Residual", "")` % of the residual variance; what is left of the item variance is what item properties will address in Step 2. Negative values can occur — variance may shift between components when predictors are added — and are read descriptively.
+
+## 4.2 Deciding on the random-effects structure
+
+The base model above is the design-implied maximal model: every coefficient varies over every unit for which it is identifiable, with correlated random effects. In real data such models are often *singular* — a variance is estimated as exactly zero or a correlation as ±1 — which signals that the data cannot support that much random-effect structure, and an overparameterised random structure costs power. Our recommendation is a fixed sequence of decisions:
+
+1. Fit the maximal model. If it is not singular and converges, keep it.
+2. If a variance is estimated as zero, remove that term (`mpa_prune(m1)` does this directly from the fit). If a correlation is estimated as ±1, or the model does not converge, in this or in a later step, drop the random-effect correlations (`correlated = FALSE`, lme4's `||` syntax), which also fits several times faster. If both occur, do both. A convergence warning that reports a gradient only slightly above lme4's tolerance is usually harmless; refitting with another optimizer (`mpa_fit(..., optimizer = "nloptwrap")`; the default is `bobyqa`) shows whether the estimates change. `mpa_random_test()` provides formal single-term deletion tests if wanted.
+3. Carry the resulting structure through all later steps with `random_structure`. Whenever a step adds a new random slope and the fit becomes singular, prune again and pass the pruned formula on. A predictor whose slopes were pruned stays pruned in the later steps.
+
+```{r, eval = FALSE}
+rt <- mpa_random_test(f1, dat, cores = 4)         # single-term deletions with boundary-corrected p-values
+f1p <- mpa_prune(f1, rt, criterion = "lrt", alpha = 0.001)
+```
+
+In the example, `m1` lies at the boundary: the target-level variance of the normative slopes is almost zero, and depending on the lme4 version and the numerical libraries, the fit is or is not flagged as singular (the estimates are the same either way). We drop the correlations first. The rule does not require this here, but the uncorrelated model fits several times faster and not worse, and it is the structure we would want for the later steps anyway. `mpa_update()` changes the random part of a formula object and leaves the fixed part as it is, so `f_base` is the complete formula of Step 1 with uncorrelated random effects:
+
+```{r, message = TRUE}
+f_base <- mpa_update(f1, correlated = FALSE)
+m_base <- mpa_fit(f_base, dat)
+m_base
+mpa_compare(m1, m_base)
+```
+
+Dropping the correlations does not worsen the fit (`r lrt(mpa_compare(m1, m_base))`), but the uncorrelated model estimates the target variance of the normative slopes as exactly zero and is singular. So we prune it, as the rule says, and refit:
+
+```{r, message = TRUE}
+if (m_base$singular) { f_base <- mpa_prune(m_base); m_base <- mpa_fit(f_base, dat) }
+m_base
+```
+
+```{r, include = FALSE}
+m_base_nc <- mpa_fit(mpa_update(f1, correlated = FALSE), dat)
+```
+
+`mpa_prune()` says which term it removed. The pruned model differs from `m1` in that term and in a slightly higher normative slope (`r fx(m_base, "self.norm.c")` instead of `r fx(m1, "self.norm.c")`; the dropped correlation between the target intercept and the target normative slope had absorbed part of it); the other estimates are unchanged to two decimals. `f_base` is the structure we carry through Steps 2 to 4: in the calls below, `random_structure = f_base` takes the random part from `f_base`, and the fixed part is built from the other arguments.
+
+# 5. Step 2: Do item properties have main effects on the judgments?
+
+Desirability (`des`, from `items.csv`) is an item property: the extent to which using an item to describe a target expresses a more positive or negative attitude toward that target. Step 2 asks whether it affects the judgments over and above the criterion profile, that is, whether targets are described more favourably than their self-ratings would predict (the *positivity effect*; Leising, Ostrovski, & Zimmermann, 2013; Wessels et al., 2020). Desirability enters with a fixed effect (the average tendency) and with random slopes (differences in this tendency between perceivers, targets and dyads).
+
+```{r, message = TRUE}
+f2 <- mpa_formula(dat, criterion = "self", random_slopes = "des", random_structure = f_base)
+f2
+m2 <- mpa_fit(f2, dat)
+m2
+```
+
+`random_slopes = "des"` gives the desirability effect random slopes wherever they are identifiable — for perceivers, targets and dyads, but not for items, because an item property does not vary within an item (the print method lists what was dropped). The fit is singular: the target-level variance of the desirability slopes is estimated as zero. This is the situation of rule 3 — a step added a new random slope and the fit became singular — so we prune that term, keep the pruned structure as the new `f_base`, and refit:
+
+```{r, message = TRUE}
+if (m2$singular) { f_base <- mpa_prune(m2); m2 <- mpa_fit(f_base, dat) }
+m2$fixed
+cmp_b2 <- mpa_compare(m_base, m2)
+cmp_b2
+```
+
+The main effect of desirability is the slope of the judgments on item desirability, holding the normative and distinctive profile constant: a positive value (here `r fx(m2, "des", d = 1)`, SE `r fx(m2, "des", "se", 1)`) means that judgments increase with desirability over and above what the criterion profile predicts, i.e., targets are described more positively than the criterion says — the positivity effect of Wessels et al. (2020). Its perceiver-level variance quantifies individual differences in this tendency; with an SD of `r vsd(m2, "perceiver", "des", 1)`, some perceivers show hardly any positivity and others twice the average; a perceiver variable such as liking could be entered in Step 4 to explain them. A target-level variance would indicate that some targets are viewed more positively than others by the average perceiver; here it was estimated as zero and pruned. Desirability also explains `r pct(cmp_b2, "item")` % of the item-intercept variance that the normative profile had left — the evaluative part of the item differences.
+
+Note how the normative slope changes when desirability is entered (from `r fx(m_base, "self.norm.c")` to `r fx(m2, "self.norm.c")`). Because the normative profile and desirability are correlated across items, part of "normative agreement" in Step 1 was agreement with what is desirable. Entering desirability as a predictor separates the two. From here on, "normative agreement" means agreement with the normative profile *over and above* desirability — normative knowledge in the sense of Rogers and Biesanz (2015), who introduced exactly this decomposition, and "pure" normative accuracy in the terms of Wessels et al. (2020). (Algebraically, entering `des` alongside $N$ is equivalent to splitting $N$ into a part predicted by desirability and a residual; the coefficient of $N$ then estimates the effect of the residual.)
+
+# 6. Step 3: Do item properties moderate agreement?
+
+Does agreement depend on the item property — are desirable, or evaluatively extreme, items judged with more or less distinctive agreement than neutral ones? `interactions = "criterion"` adds the products of every predictor with the normative and the distinctive component; `poly` adds a quadratic term (as a fixed effect) and its products with the two components, which allow an inverted-U relation: agreement may be lower for evaluatively extreme items — very desirable or very undesirable — than for neutral ones, as John and Robins (1993) found for self–other agreement.
+
+```{r, message = TRUE}
+f3 <- mpa_formula(dat, criterion = "self", random_slopes = "des", poly = "des",
+                  interactions = "criterion", random_structure = f_base)
+m3 <- mpa_fit(f3, dat, start_from = m2)
+m3
+cmp23 <- mpa_compare(m2, m3)
+cmp23
+```
+
+`start_from = m2` reuses the variance estimates of the previous model as starting values; because the random structure is unchanged, all random terms are taken over. The `des` slopes are not re-added at the target level: `random_structure = f_base` carries the pruned structure through.
+
+Distinctive agreement decreased with desirability, `self.dist:des` = `r fx(m3, "self.dist:des", d = 3)` (SE `r fx(m3, "self.dist:des", "se", 3)`), the generating value being −0.10. Because desirability runs from −1 to +1, this means that distinctive agreement is about `r formatC(abs(m3$fixed$estimate[m3$fixed$term == "self.dist:des"]), digits = 2, format = "f")` lower for the most desirable than for neutral items, and that much higher for the most undesirable ones (the figure below shows the fitted line). The quadratic moderation of distinctive agreement (`self.dist:I(des^2)` = `r fx(m3, "self.dist:I(des^2)", d = 3)`, SE `r fx(m3, "self.dist:I(des^2)", "se", 3)`) is, as simulated, indistinguishable from zero. The moderation of normative agreement by desirability is estimated as `r fx(m3, "self.norm.c:des")` with a standard error of `r fx(m3, "self.norm.c:des", "se")`, six times the standard error of the distinctive moderation, although the generating values were 0 and −0.10 and both were estimated from the same data. The reason is not the number of judgments but how much the items scatter. Both moderators are item properties and rest on the 30 items. For the normative moderation, the question is whether the 30 item means, after the normative profile, desirability and its square have been accounted for, still vary with the product of $N$ and desirability; item means scatter widely (the item-intercept SD is `r vsd(m3, "item", d = 1)` points), $N$ and desirability are correlated, and five item-level terms compete for 30 values. For the distinctive moderation, the question is whether the 30 item-specific distinctive slopes vary with desirability; each is estimated from many judgments, and they scatter little around their mean (SD `r vsd(m3, "item", "self.dist", 3)`). The effective sample size for a moderator is the number of units at the level at which it varies: 30 items for any item property, 48 perceivers for a perceiver variable (Step 4).
+
+The model comparison shows the three fit indices the package reports and how they can disagree. The likelihood-ratio test of the five added terms is significant (`r lrt(cmp23)`), the AIC favours the larger model (ΔAIC = `r round(cmp23$delta[["AIC"]], 1)`), the BIC the smaller one (ΔBIC = `r round(cmp23$delta[["BIC"]], 1)`). The BIC penalises each parameter with $\ln(n) \approx$ `r round(log(m3$n_obs), 1)` instead of 2, which with `r format(m3$n_obs, big.mark = ",")` observations is a steep price for terms that are individually small. For a moderator named in advance, the test of that term (here $z$ = `r fx(m3, "self.dist:des", "z", 1)`) is the relevant evidence; the information criteria describe the model as a whole. The variance comparison shows what the moderation explains: `r pct(cmp23, "item", "self.dist")` % of the item-level variance in distinctive agreement — the item slope of Step 1 was, to that extent, desirability.
+
+```{r, eval = has_plots, fig.height = 3.5}
+p3 <- mpa_plots(m3, labels = c(des = "Desirability"))
+patchwork::wrap_plots(p3[c("self.dist_by_des", "self.norm.c_by_des")], nrow = 1)
+```
+
+# 7. Step 4: Do perceiver, target or dyad-level variables have main and/or moderating effects?
+
+Predictors can be located at the perceiver (does agreement depend on the perceiver's `training`?), the target (are `talkative` targets judged higher on every item, or with more agreement?) or the dyad (does acquaintance, `know`, help?). All enter with the same three terms as the item property in Steps 2 and 3: `fixed` estimates their main effects, `interactions = "criterion"` their moderating effects.
+
+```{r, message = TRUE}
+f4 <- mpa_formula(dat, criterion = "self", random_slopes = "des", poly = "des",
+                  predictors = c("know", "training", "talkativeness"),
+                  interactions = "criterion", random_structure = f_base)
+m4 <- mpa_fit(f4, dat, start_from = m3)
+m4$fixed[!grepl("des", m4$fixed$term), ]
+m4$variance
+```
+
+`f4` keeps the terms of Step 3 and adds the three variables with `predictors`, that is, without random slopes. As for desirability in Step 2, `random_slopes` would give their main effects random slopes wherever a variable varies within a unit: acquaintance at the perceiver, target and item level, training at the target and item level, talkativeness at the perceiver and item level. We omit them because the data were generated without such variation. `interactions = "all"` would additionally let the new variables moderate the main effect of desirability (does acquaintance change the evaluative tendency?), with the corresponding three-way terms.
+
+Distinctive agreement is moderated by acquaintance, `self.dist:know` = `r fx(m4, "self.dist:know", d = 3)` (SE `r fx(m4, "self.dist:know", "se", 3)`): at the midpoint of the acquaintance scale it is `r fx(m4, "self.dist")`, at the lowest level (−1) about `r formatC(as.numeric(fx(m4, "self.dist", d = 3)) - as.numeric(fx(m4, "self.dist:know", d = 3)), digits = 2, format = "f")` and at the highest (+1) about `r formatC(as.numeric(fx(m4, "self.dist", d = 3)) + as.numeric(fx(m4, "self.dist:know", d = 3)), digits = 2, format = "f")`. The moderation by training, `r fx(m4, "self.dist:training", d = 3)` (SE `r fx(m4, "self.dist:training", "se", 3)`), does not reach significance; its confidence interval covers both zero and the generating value of 0.08, and a perceiver-level moderator is tested against 48 perceivers. Talkativeness has a main effect of `r fx(m4, "talkativeness", d = 1)` (SE `r fx(m4, "talkativeness", "se", 1)`): talkative targets are judged higher across all items, which — because desirability has its own term in the model — is not the same as being judged more favourably. None of the three variables moderates normative agreement.
+
+Two comparisons read the step: against Step 3, to see what the new terms add, and against the base model, to see how much of the random slope variance of Step 1 all predictors together account for — the "explaining variance in agreement" logic of the SAM.
+
+```{r}
+cmp34 <- mpa_compare(m3, m4)
+cmp34
+cmp_b4 <- mpa_compare(m_base, m4)
+cmp_b4
+```
+
+Against Step 3 the new terms improve the fit (`r lrt(cmp34)`) and reduce the dyad-level variance of the distinctive slopes by `r pct(cmp34, "perceiver:target", "self.dist")` % (acquaintance), the target-level intercept variance by `r pct(cmp34, "target")` % (talkativeness) and the target-level variance of the distinctive slopes by `r pct(cmp34, "target", "self.dist")` %; the perceiver-level variance of the distinctive slopes rises slightly (`prop_reduced` = `r formatC(cmp34$variance$prop_reduced[cmp34$variance$unit == "perceiver" & cmp34$variance$effect == "self.dist"], digits = 2, format = "f")`), in line with the nonsignificant training effect: the reductions are computed from estimates and can be negative. Against the base model, all predictors together account for `r pct(cmp_b4, "perceiver:target", "self.dist")` % of the dyad-level, `r pct(cmp_b4, "target", "self.dist")` % of the target-level and `r pct(cmp_b4, "item", "self.dist")` % of the item-level variance in distinctive agreement, but for none of the perceiver-level variance. The item reduction was achieved in Step 3 already; the comparison with the base model does not show which step explained what, which is why both comparisons are useful.
+
+Main and moderating effects can also be expressed as standardized effect sizes.
+
+```{r}
+es4 <- mpa_effect_size(m4)
+es4[!grepl("des", es4$term), ]
+```
+
+`mpa_effect_size()` divides the change in an intercept or slope across two standard deviations of the predictor (Gelman, 2008) by the standard deviation of that intercept or slope across the units on which the predictor is measured: across perceivers for `training`, across targets for `talkativeness`, across items for `des`, and, because acquaintance was not decomposed and varies at all three levels, across perceivers, targets and dyads together for `know`. The value reads like Cohen's *d* for two equally large groups of units. Dyads two standard deviations apart in acquaintance differ in distinctive agreement by `r formatC(es4$d[es4$term == "self.dist:know"], digits = 2, format = "f")` standard deviations of that slope across dyads. *d* is `NA` where the variance component is not in the model or was estimated as zero, and it is too large where the variance component is underestimated, so it should be read together with the variance table. `mpa_effect_size(m4, denominator = "total")` relates every change to the standard deviation of the slope across all judgments instead. `vignette("predictor-profiles", package = "profilemlm")` gives the details.
+
+## 7.1 Decomposing dyad-level variables
+
+A dyadic variable such as acquaintance mixes three things: perceivers who generally report more acquaintance, targets who are generally better known, and dyads in which acquaintance is higher than either would suggest. `decompose` in `mpa_data()` creates the three components — a perceiver component (`know.p`), a target component (`know.t`) and a *relationship component* (`know.r`, in the terminology of the Social Relations Model). In a half-block design perceivers and targets are crossed only within their group, so the decomposition is carried out within groups and a fourth, group component (`know.g`: groups whose members know each other better) is split off; otherwise a group difference would masquerade as perceiver, target and relationship effects at once. Because the components are registered as group-, perceiver-, target- and dyad-level variables, random slopes are again assigned only where identifiable (the group component gets none). Each acquaintance effect becomes four coefficients; the undecomposed model is nested in the decomposed one (it constrains them to be equal), so the two can be compared by a likelihood-ratio test. The decomposition needs a crossed design: in a one-with-many design (the typical informant study) a dyadic variable is a perceiver variable and the question cannot be asked.
+
+```{r, message = TRUE}
+dd <- mpa_data(judgments = perceiver_survey, format = "loop", loop_id = "id",
+               targets = target_survey, items = items, item_cols = "^item_",
+               criterion = list(self = "targets"), group = "group",
+               rating_scale = c(1, 101), decompose = "know", verbose = FALSE)
+f4d <- mpa_formula(dd, criterion = "self", random_slopes = "des", poly = "des",
+                   predictors = c("know.g", "know.p", "know.t", "know.r", "training", "talkativeness"),
+                   interactions = "criterion", random_structure = f_base)
+m4d <- mpa_fit(f4d, dd, start_from = m4)
+m4d$fixed[grepl("know", m4d$fixed$term), ]
+cmp4d <- mpa_compare(m4, m4d)
+cmp4d$lrt
+```
+
+(`mpa_compare()` warns that the models are not nested in the strict sense it checks — the term `know` is replaced by its four components — and the variance table is not of interest here; the likelihood-ratio test is valid because the undecomposed model is the decomposed one with equal coefficients.) In the simulated data acquaintance had the same effect at every level, and the decomposition does not improve the fit (`r lrt(cmp4d)`). The moderating effect of the relationship component is estimated most precisely, `self.dist:know.r` = `r fx(m4d, "self.dist:know.r", d = 3)` (SE `r fx(m4d, "self.dist:know.r", "se", 3)`); the target component also reaches significance, `r fx(m4d, "self.dist:know.t", d = 3)` (SE `r fx(m4d, "self.dist:know.t", "se", 3)`), which with 48 targets is still compatible with the generating value of 0.08 that applies to every component (the estimate is 1.9 standard errors away from it). With real data, a difference between components of that size would be the first hint that acquaintance works differently for well-known targets than within relationships.
+
+# 8. Figures
+
+`mpa_plot()` shows a slope as a function of a moderator; `mpa_plots()` creates all panels implied by a model and gives panels of the same slope a common y-axis.
+
+```{r, eval = has_plots, fig.height = 3.5}
+p4 <- mpa_plots(m4, labels = c(des = "Desirability", know = "Acquaintance", training = "Training", talkativeness = "Talkativeness"))
+patchwork::wrap_plots(p4[c("self.dist_by_know", "self.dist_by_training", "self.dist_by_talkativeness")], nrow = 1)
+```
+
+Other predictors are held at 0 (their centering point) so that the curves correspond to the coefficients in the fixed-effects table; `hold = NULL` uses sample means instead. `mpa_save_plots()` writes panels to files.
+
+# 9. Did we recover the generating parameters?
+
+Because the example data were simulated, we can compare every estimate of the complete model with the value that generated it. This is the check that the model of Step 4 is right, and it shows which quantities a design of this size estimates well and which it does not. `mpa_recovery()` needs the generating parameters, which we attached to `dat_sim` in Section 2.2, so the Step 4 model is refitted on that object (same data, same estimates):
+
+```{r}
+rec <- mpa_recovery(mpa_fit(f4, dat_sim, start_from = m4))
+rec
+```
+
+All `r nrow(rec$fixed)` confidence intervals of the fixed effects cover the true values. The random-effect SDs are recovered within sampling error, with three exceptions worth a look: the perceiver-level SD of the normative slopes is underestimated (`r formatC(rec$variance$estimated_sd[rec$variance$unit == "perceiver" & rec$variance$effect == "self.norm.c"], digits = 2, format = "f")` vs. 0.25), the dyad-level SD of the distinctive slopes as well (`r formatC(rec$variance$estimated_sd[rec$variance$unit == "perceiver:target" & rec$variance$effect == "self.dist"], digits = 2, format = "f")` vs. 0.08), and the dyad-level SD of the desirability slopes is estimated as `r formatC(rec$variance$estimated_sd[rec$variance$unit == "perceiver:target" & rec$variance$effect == "des"], digits = 1, format = "f")` although the data were generated without such variation. The last two go together: both describe how the 30 items of a dyad deviate from the dyad's average pattern, and with 30 items per dyad they are not well separated from each other and from the residual. The target-level SDs of the normative and the desirability slopes are not in the table because they were pruned in Sections 4.2 and 5. Slope variances are the quantities a single study estimates least precisely.
+
+## 9.1 Planning a study
+
+`mpa_simulate()` doubles as a tool for design and power analysis. Generate data from the expected parameters for a candidate design, fit the intended model, record the result, and repeat. The code below estimates the power to detect a moderation of distinctive agreement by acquaintance of the size of the example (0.08) with 48 perceivers and 30 items, for four and for eight targets per perceiver. The random-effect standard deviations are those of the example, including the item-level variation in distinctive agreement, and the fitted model is the one planned for the analysis, with the item slope. The chunk is not run when the vignette is built, because 200 fits take about half an hour on one core; the numbers below are from our run (the same code is in the paper, section *Planning a Study*).
+
+```{r, eval = FALSE}
+sd_example <- list(perceiver = c(intercept = 8, norm = 0.25, dist = 0.08),
+                   target    = c(intercept = 2, norm = 0.05, dist = 0.06),
+                   dyad      = c(intercept = 5, norm = 0.15, dist = 0.08),
+                   item      = c(intercept = 3, dist = 0.04))
+one_run <- function(seed, targets) {
+  dat <- mpa_simulate(n_perceiver = 48, n_item = 30,
+                      group_size = targets,   # targets per perceiver (= perceivers per target)
+                      norm_sd = 12, dist_sd = 10,
+                      fixed = c(intercept = 51, norm = 0.6, dist = 0.15,
+                                know_dist = 0.08),
+                      sd = sd_example, resid_sd = 12,
+                      rating_scale = c(1, 101), seed = seed)
+  f <- mpa_formula(dat, criterion = "self", predictors = "know",
+                   interactions = "criterion", correlated = FALSE)
+  m <- mpa_fit(f, dat)
+  m$fixed$p[m$fixed$term == "self.dist:know"]
+}
+p4 <- sapply(1:100, one_run, targets = 4)
+mean(p4 < .05)
+p8 <- sapply(1:100, one_run, targets = 8)
+mean(p8 < .05)
+```
+
+With 100 replications, the moderation was detected in 61% of the replications with four targets per perceiver and in 93% with eight. A dyadic moderator of this size thus calls for about eight targets per perceiver. For your own study, set `fixed` and `sd` to the values you expect, for instance from published studies or a pilot study, and fit the model you plan to report. `parallel::mclapply()` in place of `sapply()` spreads the replications over several cores.
+
+The same loop answers a second question, whether the variance components are recoverable, by recording the estimated SDs instead of the *p* value. We ran such a simulation for half-block designs of varying size (the script is at `system.file("scripts", "sim_identifiability.R", package = "profilemlm")`; the paper reports the results in its Supplemental Material). The variance of a unit's slopes is identified only through the covariance among that unit's dyad-specific slopes. With four targets per perceiver and 30 items, the perceiver-level SD of distinctive agreement was underestimated and was estimated as exactly zero in up to 13% of the replications. With eight targets it was close to the generating value. The dyad-level SD depends mainly on the number of items per dyad (zero in up to 17% of the replications with 30 items, rarely with 60), the target-level SD on the number of perceivers per target and on the total number of targets. The item-level SD was recovered in the larger designs and was estimated as zero in up to 27% of the replications in the smallest ones. A rule of thumb for moderators: the effective sample size is the number of units at the level at which the moderator varies — 48 perceivers for training, 30 items for an item property — not the number of judgments.
+
+## 9.2 Target × item and perceiver × item components
+
+The models so far give perceivers, targets, dyads and items their own intercepts. One further component is conceivable: what the perceivers of a target share in their judgment of an item beyond the criterion profile — their consensus about this target on this item, or the target's reputation on it (Wiedenroth et al., 2025). In the model it is a random intercept for the target × item cells, `random_units = "target:item"` (called `target_item` inside the formula object), identifiable whenever several perceivers judge the same target. It leaves the profile regression unchanged and adds, in effect, a third profile: the deviation of the perceivers' shared view of a target from the criterion profile. The Social Accuracy Model does not contain it, and neither do the tutorial models. Adding it to the Step 3 model shows what it does in the simulated data, which were generated without it:
+
+```{r, message = TRUE}
+f3ti <- mpa_update(f3, add = list(target_item = "1"))
+m3ti <- mpa_fit(f3ti, dat, start_from = m3)
+m3ti$variance[m3ti$variance$unit %in% c("target:item", "Residual"), ]
+print(rbind(m3 = m3$fixed[m3$fixed$term == "self.dist:des", c("estimate", "se")],
+            m3ti = m3ti$fixed[m3ti$fixed$term == "self.dist:des", c("estimate", "se")]), digits = 4)
+```
+
+The SD of the component is `r vsd(m3ti, "target:item", d = 1)` judgment points against a residual SD of `r vsd(m3ti, "Residual", "", d = 1)`, and the moderation of distinctive agreement by desirability and its standard error are unchanged. In real data the component is usually present, because informants share views of a target that the target's self-ratings do not capture. When it is omitted, it is absorbed by the residual and by the item-level variance of the distinctive slopes, which is then overestimated, so that items appear to differ in agreement more than they do; the fixed effects and their standard errors are affected little (in simulated data of this design with a shared component of SD 4 or 8, the item slope SD came out about twice too large and the standard errors slightly too large rather than too small). The paper discusses the component under *Extensions* and the related question of agreement among exchangeable informants under *Limitations and Outlook*.
+
+The perceiver × item cells are the counterpart at the perceiver level: what a perceiver's judgments of an item share across all their targets beyond the normative profile, that is, the perceiver's idiosyncratic view of people in general on this item (the item-specific part of the perceiver effect of the Social Relations Model). `random_units = "perceiver:item"` (`perceiver_item` inside the formula object) adds a random intercept for these cells and, because the distinctive profile varies across the targets of one perceiver, a random slope for the distinctive component: item-specific differences between perceivers in distinctive agreement, Funder's (1995) judge × trait interaction, which the paper discusses under *Extensions*. The component is identifiable whenever perceivers judge several targets, so in a one-with-many design, where each perceiver judges one target, only the target × item component of the two can be estimated. Added to the model above (intercept only, to keep the fit short):
+
+```{r, message = TRUE}
+f3pi <- mpa_update(f3ti, add = list(perceiver_item = "1"))
+m3pi <- mpa_fit(f3pi, dat, start_from = m3ti)
+m3pi$variance[m3pi$variance$unit %in% c("target:item", "perceiver:item", "Residual"), ]
+```
+
+The perceiver × item SD is `r vsd(m3pi, "perceiver:item", d = 1)` judgment points, and no other estimate changes, as expected in data generated without the component. When such a component is present and omitted, it is absorbed by the residual and by the perceiver-level variances of the slopes of item properties, because a perceiver's item-specific deviations project onto any property of the items: in simulated data of this design with a perceiver × item SD of 4, the residual SD came out as 12.6 instead of 12.0 and the perceiver-level SD of the desirability slopes as 3.5 to 3.8 instead of 3.1 to 3.4, while the fixed effects and their standard errors changed little. Data with either component are generated by `mpa_simulate()`, for instance with `sd = list(target_item = c(intercept = 4), perceiver_item = c(intercept = 4, dist = 0.03))`, and `mpa_recovery()` of a model with the corresponding `random_units` then reports how well their SDs are recovered.
+
+# 10. Design types
+
+| Design | Who rates whom | Dyad-level random effects | Dyadic variables | Notes |
+|---|---|---|---|---|
+| One-with-many | each perceiver rates one target; several perceivers per target | not separable from perceiver effects (`random_dyad` off) | constant within perceivers: perceiver variables | typical for informant studies (e.g., Wessels et al., 2020, replicated in the vignette `wessels-application`) |
+| Half-block | groups of perceivers rate groups of targets; perceivers and targets are different people | separable (given several items per dyad) | decomposable into group, perceiver, target and relationship components | the design used here |
+| Round-robin | everyone rates everyone in a group | separable | decomposable | additional reciprocity dependencies (a person's perceiver and target effects, and the two judgments within a dyad, may be correlated) that the present models do not address; see the paper, Limitations and Outlook, and the Social Relations Model literature |
+
+`mpa_data()` detects the design and sets the default for dyad-level random effects accordingly. Items must be rated repeatedly within a dyad for dyad effects to be distinguishable from residual error — a single item per dyad would not do.
+
+# 11. Running the analysis on your own data
+
+The five steps on your own files are the code of Sections 2 to 8 with your file names and variable names. The template below, installed as `system.file("scripts", "template_own_data.R", package = "profilemlm")`, collects that code in one script; replace the parts in angle brackets and run it top to bottom.
+
+```{r, echo = FALSE, results = "asis"}
+cat("```r\n", paste(readLines(system.file("scripts", "template_own_data.R", package = "profilemlm")), collapse = "\n"), "\n```\n", sep = "")
+```
+
+# 12. The same models with brms
+
+Every model of this tutorial can also be estimated with brms (Bürkner, 2017), that is, by Bayesian sampling in Stan, with the same formula and the same data. The engine is chosen in `mpa_fit()`, or once for the whole script:
+
+```{r, eval = FALSE}
+options(profilemlm.engine = "brms")           # from here on every mpa_fit() samples with brms
+m1_b <- mpa_fit(f1, dat, chains = 4, iter = 2000, seed = 1)   # the base model of Step 1
+m1_b
+m4_b <- mpa_fit(f4, dat, file = "fits/m4_brms")  # saved to disk; reloaded on the next run
+mpa_compare(m1_b, m4_b)
+mpa_plots(m4_b)
+mpa_recovery(mpa_fit(f4, dat_sim))
+options(profilemlm.engine = "lme4")
+```
+
+The calls, the tables and the plots are the same; the content of the tables is not. A brms fit reports the posterior median as `estimate`, the posterior standard deviation as `se`, an equal-tailed credible interval as `ci_lower` and `ci_upper`, and the sampling diagnostics `rhat`, `ess_bulk` and `ess_tail` in place of `z` and `p`; the variance table has a credible interval for every random-effect *SD*. The print method states what the columns contain. Two things of the lme4 workflow have no Bayesian counterpart and are handled as follows. There is no singular fit: a variance component that lme4 would estimate as exactly zero has, under the default priors, a posterior that is concentrated near zero but not at it, and the credible interval of its *SD* shows how small it is. `mpa_prune()` therefore leaves the structure of a brms fit unchanged (and says which *SD*s are near zero), and the recommendation of Section 4.2 to prune becomes a recommendation to look at these intervals. And there is no likelihood-ratio test and no AIC or BIC: `mpa_compare()` reports `prop_reduced` from the posterior medians and, with `loo = TRUE`, the leave-one-out comparison of the two models (which needs fits estimated with `save_group_draws = TRUE`). `mpa_random_test()` is available for lme4 only.
+
+Sampling takes minutes for data of the size of this tutorial (every new formula is compiled once, about a minute, then four chains run in parallel) and hours for data of the size of Wessels et al. (2020, Study 2; 150,072 judgments), where lme4 remains the engine of choice. The default priors of brms are flat on the fixed effects and weakly informative on the standard deviations, so that the posterior medians of the fixed effects are close to the maximum-likelihood estimates when the data are informative; `prior =` passes other priors through (`?mpa_engine`).
+
+# Glossary
+
+*Criterion profile.* The profile of values the judgments are compared with (self-ratings, informant ratings, behavioural measures); a predictor in the model, not the dependent variable. If it can be argued to measure the truth about the target, agreement with it can be called accuracy.
+
+*Profile agreement.* The regression slope of a perceiver's judgment profile on a criterion profile; normative and distinctive agreement refer to the two components of the criterion profile.
+
+*Base model.* The model with the normative and distinctive profile and random slopes for perceivers, targets, dyads and items (Step 1); Steps 2 to 4 extend it with predictors.
+
+*Main and moderating effects.* A predictor's main effect shifts the judgments up or down the scale, whatever the criterion says; its moderating effect changes profile agreement (an interaction with a criterion component). Only the latter makes the predictor a moderator.
+
+*Random slope.* A regression coefficient that is allowed to vary across units (perceivers, targets, dyads); its variance quantifies individual (or relationship) differences in that effect.
+
+*Crossed random factor.* A grouping factor whose levels combine with the levels of other factors rather than being nested in them; here items are crossed with perceivers, targets and dyads.
+
+*Singular fit.* A mixed-model solution in which a variance is estimated as exactly zero or a correlation as ±1; the model has more random-effect structure than the data can support.
+
+*Pruning.* Removing random terms from a model — by statistical criteria or because their variance is zero — and then keeping the reduced structure fixed.
+
+*Reparameterisation.* Rewriting a model in different units or coordinates without changing its fit; here the division of criterion components by a constant for estimation, undone for reporting.
+
+*Relationship component.* In the Social Relations Model, the part of a dyadic variable that is unique to the dyad after removing the perceiver's and the target's average.
+
+*Target × item component.* A random intercept for the cells formed by targets and items: what the perceivers of a target share in their judgment of an item beyond the criterion profile (consensus, reputation); `random_units = "target:item"`, Section 9.2.
+
+*Perceiver × item component.* Random effects for the cells formed by perceivers and items: a perceiver's item-specific view of people in general (intercept) and item-specific distinctive agreement (slope); `random_units = "perceiver:item"`, Section 9.2.
+
+# References
+
+de Vries, R. E., Realo, A., & Allik, J. (2016). Using personality item characteristics to predict single-item internal reliability, retest reliability, and self–other agreement. *European Journal of Personality, 30*, 618–636.
+
+Funder, D. C. (1995). On the accuracy of personality judgment: A realistic approach. *Psychological Review, 102*, 652–670.
+
+Furr, R. M. (2008). A framework for profile similarity: Integrating similarity, normativeness, and distinctiveness. *Journal of Personality, 76*, 1267–1316.
+
+Biesanz, J. C. (2010). The Social Accuracy Model of interpersonal perception: Assessing individual differences in perceptive and expressive accuracy. *Multivariate Behavioral Research, 45*, 853–885.
+
+Borkenau, P., & Leising, D. (2016). A more complete picture of personality: What analyses of trait profiles have told us about personality judgment—so far. *Current Directions in Psychological Science, 25*, 228–232.
+
+Bürkner, P.-C. (2017). brms: An R package for Bayesian multilevel models using Stan. *Journal of Statistical Software, 80*(1), 1–28. https://doi.org/10.18637/jss.v080.i01
+
+Gelman, A. (2008). Scaling regression inputs by dividing by two standard deviations. *Statistics in Medicine, 27*(15), 2865–2873. https://doi.org/10.1002/sim.3107
+
+John, O. P., & Robins, R. W. (1993). Determinants of interjudge agreement on personality traits: The Big Five domains, observability, evaluativeness, and the unique perspective of the self. *Journal of Personality, 61*, 521–551.
+
+Judd, C. M., Westfall, J., & Kenny, D. A. (2012). Treating stimuli as a random factor in social psychology. *Journal of Personality and Social Psychology, 103*, 54–69.
+
+Leising, D., Ostrovski, O., & Zimmermann, J. (2013). "Are we talking about the same person here?" Interrater agreement in judgments of personality varies dramatically with how much the perceivers like the targets. *Social Psychological and Personality Science, 4*, 468–474.
+
+Rogers, K. H., & Biesanz, J. C. (2015). Knowing versus liking: Separating normative knowledge from social desirability in first impressions of personality. *Journal of Personality and Social Psychology, 109*, 1105–1116.
+
+Wessels, N. M., Zimmermann, J., Biesanz, J. C., & Leising, D. (2020). Differential associations of knowing and liking with accuracy and positivity bias in person perception. *Journal of Personality and Social Psychology, 118*, 149–171.
+
+Wessels, N. M., Leising, D., & Zimmermann, J. (2025). A nuanced perspective on how item features are associated with different forms of agreement. *Collabra: Psychology, 11*(1), 127423.
+
+West, T. V., & Kenny, D. A. (2011). The truth and bias model of judgment. *Psychological Review, 118*, 357–378.
+
+Wiedenroth, A., Connelly, B. S., McAbee, S. T., & Fang, R. T. (2025). What defines traits, reputations, and identity? Personality item content in multi-rater judgments. *European Journal of Personality, 39*, 70–89.

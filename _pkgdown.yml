@@ -1,0 +1,23 @@
+url: https://jzpsych.github.io/profilemlm
+template:
+  bootstrap: 5
+reference:
+- title: Data preparation
+  contents: [mpa_data, mpa_design]
+- title: Model specification
+  contents: [mpa_formula, mpa_update, mpa_formula_string]
+- title: Estimation and comparison
+  contents: [mpa_fit, mpa_engine, mpa_compare, mpa_effect_size, mpa_rows]
+- title: Random-effects structure
+  contents: [mpa_random_test, mpa_prune]
+- title: Figures
+  contents: [mpa_plot, mpa_plots, mpa_align_y, mpa_save_plots]
+- title: Simulation
+  contents: [mpa_simulate, mpa_sim_attach, mpa_sim_parameters, mpa_recovery]
+articles:
+- title: Tutorial
+  contents: [mpa-tutorial]
+- title: Extensions
+  contents: [predictor-profiles]
+- title: Replication
+  contents: [wessels-application]
