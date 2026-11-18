@@ -1,6 +1,6 @@
 Package: profilemlm
 Title: Multilevel Profile Analysis of Person Judgment Data
-Version: 1.0.0
+Version: 1.0.1
 Authors@R: c(
     person("Johannes", "Zimmermann", role = c("aut", "cre"), email = "johannes.zimmermann@uni-kassel.de",
            comment = c(ORCID = "0000-0001-6975-2356")),

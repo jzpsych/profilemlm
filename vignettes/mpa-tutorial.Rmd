@@ -23,7 +23,7 @@ pct <- function(cmp, unit, effect = "(Intercept)") { v <- cmp$variance; round(10
 lrt <- function(cmp) sprintf("chi-square(%d) = %.1f, p %s", cmp$lrt$df, cmp$lrt$chisq, if (cmp$lrt$p < .001) "< .001" else paste("=", sub("^0", "", formatC(cmp$lrt$p, digits = if (cmp$lrt$p < .01) 3 else 2, format = "f"))))
 ```
 
-> Terms in *italics* on first use are explained in the glossary at the end. This vignette accompanies Zimmermann, Wessels, Rau, Freyer and Leising (in preparation), *Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm*.
+> Terms in *italics* on first use are explained in the glossary at the end. This vignette accompanies Zimmermann, Wessels, Rau, Freyer and Leising (2026), *Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm* (PsyArXiv preprint, https://doi.org/10.31234/osf.io/5czt9_v1).
 
 # 0. What this vignette is, and getting started
 
@@ -194,7 +194,7 @@ Items account for `r sh[["item"]]` % of the judgment variance, perceivers for `r
 
 # 4. Step 1: How strong are normative and distinctive agreement, and how much do they vary?
 
-Step 1 fits the base model. This is the Social Accuracy Model (Biesanz, 2010) with one addition: items enter as a crossed random factor (`"item"` is part of the default `random_units`), with a random intercept and a random slope for the distinctive component. The intercept models item-level variation in the judgments that the normative profile does not capture; the slope models item-level variation in distinctive agreement. Both are needed for conclusions to generalise to the population of items (Judd, Westfall, & Kenny, 2012): if the item slope is left out, the standard errors of every item property × criterion term in Step 3 are computed as though the judgments, not the items, were the units of that inference, and they come out too small (in the simulated data, 0.023 instead of 0.029 for the desirability moderation of Step 3; with the larger item variation of real adjective data, the difference is larger). In 200 simulated data sets of this design without a true moderation, the test of the moderation was significant in 4% of the data sets with the item slope and in 8% without it, and in 4% versus 22% when the item-level SD was doubled (script `sim_item_slope.R`). The normative profile and item properties take one value per item and therefore get no item slope; `mpa_formula()` drops them and says so.
+Step 1 fits the base model. This is the Social Accuracy Model (Biesanz, 2010) with one addition: items enter as a crossed random factor (`"item"` is part of the default `random_units`), with a random intercept and a random slope for the distinctive component. The intercept models item-level variation in the judgments that the normative profile does not capture; the slope models item-level variation in distinctive agreement. Both are needed for conclusions to generalise to the population of items (Judd, Westfall, & Kenny, 2012): if the item slope is left out, the standard errors of every item property × criterion term in Step 3 are computed as though the judgments, not the items, were the units of that inference, and they come out too small (in the simulated data, 0.023 instead of 0.029 for the desirability moderation of Step 3; with the larger item variation of real adjective data, the difference is larger). The normative profile and item properties take one value per item and therefore get no item slope; `mpa_formula()` drops them and says so.
 
 ## 4.1 Fixed effects and variance components
 
@@ -511,32 +511,32 @@ Sampling takes minutes for data of the size of this tutorial (every new formula 
 
 # References
 
-de Vries, R. E., Realo, A., & Allik, J. (2016). Using personality item characteristics to predict single-item internal reliability, retest reliability, and self–other agreement. *European Journal of Personality, 30*, 618–636.
+de Vries, R. E., Realo, A., & Allik, J. (2016). Using personality item characteristics to predict single-item internal reliability, retest reliability, and self–other agreement. *European Journal of Personality, 30*(6), 618–636. https://doi.org/10.1002/per.2083
 
-Funder, D. C. (1995). On the accuracy of personality judgment: A realistic approach. *Psychological Review, 102*, 652–670.
+Funder, D. C. (1995). On the accuracy of personality judgment: A realistic approach. *Psychological Review, 102*(4), 652–670. https://doi.org/10.1037/0033-295X.102.4.652
 
-Furr, R. M. (2008). A framework for profile similarity: Integrating similarity, normativeness, and distinctiveness. *Journal of Personality, 76*, 1267–1316.
+Furr, R. M. (2008). A framework for profile similarity: Integrating similarity, normativeness, and distinctiveness. *Journal of Personality, 76*(5), 1267–1316. https://doi.org/10.1111/j.1467-6494.2008.00521.x
 
-Biesanz, J. C. (2010). The Social Accuracy Model of interpersonal perception: Assessing individual differences in perceptive and expressive accuracy. *Multivariate Behavioral Research, 45*, 853–885.
+Biesanz, J. C. (2010). The Social Accuracy Model of interpersonal perception: Assessing individual differences in perceptive and expressive accuracy. *Multivariate Behavioral Research, 45*(5), 853–885. https://doi.org/10.1080/00273171.2010.519262
 
-Borkenau, P., & Leising, D. (2016). A more complete picture of personality: What analyses of trait profiles have told us about personality judgment—so far. *Current Directions in Psychological Science, 25*, 228–232.
+Borkenau, P., & Leising, D. (2016). A more complete picture of personality: What analyses of trait profiles have told us about personality judgment—so far. *Current Directions in Psychological Science, 25*(4), 228–232. https://doi.org/10.1177/0963721416651960
 
 Bürkner, P.-C. (2017). brms: An R package for Bayesian multilevel models using Stan. *Journal of Statistical Software, 80*(1), 1–28. https://doi.org/10.18637/jss.v080.i01
 
 Gelman, A. (2008). Scaling regression inputs by dividing by two standard deviations. *Statistics in Medicine, 27*(15), 2865–2873. https://doi.org/10.1002/sim.3107
 
-John, O. P., & Robins, R. W. (1993). Determinants of interjudge agreement on personality traits: The Big Five domains, observability, evaluativeness, and the unique perspective of the self. *Journal of Personality, 61*, 521–551.
+John, O. P., & Robins, R. W. (1993). Determinants of interjudge agreement on personality traits: The Big Five domains, observability, evaluativeness, and the unique perspective of the self. *Journal of Personality, 61*(4), 521–551. https://doi.org/10.1111/j.1467-6494.1993.tb00781.x
 
-Judd, C. M., Westfall, J., & Kenny, D. A. (2012). Treating stimuli as a random factor in social psychology. *Journal of Personality and Social Psychology, 103*, 54–69.
+Judd, C. M., Westfall, J., & Kenny, D. A. (2012). Treating stimuli as a random factor in social psychology: A new and comprehensive solution to a pervasive but largely ignored problem. *Journal of Personality and Social Psychology, 103*(1), 54–69. https://doi.org/10.1037/a0028347
 
-Leising, D., Ostrovski, O., & Zimmermann, J. (2013). "Are we talking about the same person here?" Interrater agreement in judgments of personality varies dramatically with how much the perceivers like the targets. *Social Psychological and Personality Science, 4*, 468–474.
+Leising, D., Ostrovski, O., & Zimmermann, J. (2013). “Are we talking about the same person here?” Interrater agreement in judgments of personality varies dramatically with how much the perceivers like the targets. *Social Psychological and Personality Science, 4*(4), 468–474. https://doi.org/10.1177/1948550612462414
 
-Rogers, K. H., & Biesanz, J. C. (2015). Knowing versus liking: Separating normative knowledge from social desirability in first impressions of personality. *Journal of Personality and Social Psychology, 109*, 1105–1116.
+Rogers, K. H., & Biesanz, J. C. (2015). Knowing versus liking: Separating normative knowledge from social desirability in first impressions of personality. *Journal of Personality and Social Psychology, 109*(6), 1105–1116. https://doi.org/10.1037/a0039587
 
-Wessels, N. M., Zimmermann, J., Biesanz, J. C., & Leising, D. (2020). Differential associations of knowing and liking with accuracy and positivity bias in person perception. *Journal of Personality and Social Psychology, 118*, 149–171.
+Wessels, N. M., Zimmermann, J., Biesanz, J. C., & Leising, D. (2020). Differential associations of knowing and liking with accuracy and positivity bias in person perception. *Journal of Personality and Social Psychology, 118*(1), 149–171. https://doi.org/10.1037/pspp0000218
 
-Wessels, N. M., Leising, D., & Zimmermann, J. (2025). A nuanced perspective on how item features are associated with different forms of agreement. *Collabra: Psychology, 11*(1), 127423.
+Wessels, N. M., Leising, D., & Zimmermann, J. (2025). A nuanced perspective on how item features are associated with different forms of agreement. *Collabra: Psychology, 11*(1), Article 127423. https://doi.org/10.1525/collabra.127423
 
-West, T. V., & Kenny, D. A. (2011). The truth and bias model of judgment. *Psychological Review, 118*, 357–378.
+West, T. V., & Kenny, D. A. (2011). The truth and bias model of judgment. *Psychological Review, 118*(2), 357–378. https://doi.org/10.1037/a0022936
 
-Wiedenroth, A., Connelly, B. S., McAbee, S. T., & Fang, R. T. (2025). What defines traits, reputations, and identity? Personality item content in multi-rater judgments. *European Journal of Personality, 39*, 70–89.
+Wiedenroth, A., Connelly, B. S., McAbee, S. T., & Fang, R. T. (2025). What defines traits, reputations, and identity? Personality item content in multi-rater judgments. *European Journal of Personality, 39*(1), 70–89. https://doi.org/10.1177/08902070241236865

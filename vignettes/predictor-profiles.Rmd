@@ -18,7 +18,7 @@ library(profilemlm)
 has_gg <- requireNamespace("ggplot2", quietly = TRUE)
 ```
 
-> This vignette accompanies Zimmermann, Wessels, Rau, Freyer and Leising (in preparation), *Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm*. It covers an extension that the article names under *Extensions*, and the standardized effect sizes of `mpa_effect_size()`. The general tutorial is `vignette("mpa-tutorial", package = "profilemlm")`.
+> This vignette accompanies Zimmermann, Wessels, Rau, Freyer and Leising (2026), *Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm* (PsyArXiv preprint, https://doi.org/10.31234/osf.io/5czt9_v1). It covers an extension that the article names under *Extensions*, and the standardized effect sizes of `mpa_effect_size()`. The general tutorial is `vignette("mpa-tutorial", package = "profilemlm")`.
 
 # 1. What a predictor profile is
 

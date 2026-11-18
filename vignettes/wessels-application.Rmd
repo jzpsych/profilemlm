@@ -18,7 +18,7 @@ library(profilemlm)
 res <- readRDS(system.file("extdata", "wessels_results.rds", package = "profilemlm"))
 ```
 
-> This vignette accompanies Zimmermann, Wessels, Rau, Freyer and Leising (in preparation), *Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm*. It shows that the package reproduces a published Social Accuracy Model exactly: Model 2.2c of Wessels et al. (2020, Table 5). The general tutorial, on simulated data, is `vignette("mpa-tutorial", package = "profilemlm")`.
+> This vignette accompanies Zimmermann, Wessels, Rau, Freyer and Leising (2026), *Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm* (PsyArXiv preprint, https://doi.org/10.31234/osf.io/5czt9_v1). It shows that the package reproduces a published Social Accuracy Model exactly: Model 2.2c of Wessels et al. (2020, Table 5). The general tutorial, on simulated data, is `vignette("mpa-tutorial", package = "profilemlm")`.
 
 # 1. What this vignette shows
 
@@ -111,5 +111,5 @@ All 16 fixed effects agree with the published values to three decimals, and so d
 
 # References
 
-- Wessels, N. M., Zimmermann, J., Biesanz, J. C., & Leising, D. (2020). Differential associations of knowing and liking with accuracy and positivity bias in person perception. *Journal of Personality and Social Psychology, 118*, 149–171.
-- Wessels, N. M., Leising, D., & Zimmermann, J. (2025). A nuanced perspective on how item features are associated with different forms of agreement. *Collabra: Psychology, 11*(1), Article 127423.
+- Wessels, N. M., Zimmermann, J., Biesanz, J. C., & Leising, D. (2020). Differential associations of knowing and liking with accuracy and positivity bias in person perception. *Journal of Personality and Social Psychology, 118*(1), 149–171. https://doi.org/10.1037/pspp0000218
+- Wessels, N. M., Leising, D., & Zimmermann, J. (2025). A nuanced perspective on how item features are associated with different forms of agreement. *Collabra: Psychology, 11*(1), Article 127423. https://doi.org/10.1525/collabra.127423

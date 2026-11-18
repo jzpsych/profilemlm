@@ -6,7 +6,7 @@ Several people describe someone they know on a list of items, and their descript
 
 The package accompanies the tutorial
 
-> Zimmermann, J., Wessels, N. M., Rau, R., Freyer, N., & Leising, D. (in preparation). *Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm.*
+> Zimmermann, J., Wessels, N. M., Rau, R., Freyer, N., & Leising, D. (2026). *Who agrees with whom about what? A tutorial on multilevel profile analysis of person judgments with the R package profilemlm*. PsyArXiv. https://doi.org/10.31234/osf.io/5czt9_v1
 
 ## Installation
 
@@ -61,7 +61,7 @@ m1
 - `mpa-tutorial`: the five steps on simulated data, planning a study, further model components, Bayesian estimation.
 - `predictor-profiles`: more than one predictor profile (assumed similarity), designs with unconnected pairs, effect sizes.
 - `wessels-application`: replication of Model 2.2c of Wessels et al. (2020) with the data sets `wessels_judgments` and `wessels_items`.
-- `system.file("scripts", package = "profilemlm")` contains a commented template for one's own data (`template_own_data.R`), the simulations reported in the tutorial (`sim_identifiability.R`, `sim_item_slope.R`), the figure script (`make_figures.R`), and the replication script (`wessels_study2.R`).
+- `system.file("scripts", package = "profilemlm")` contains a commented template for one's own data (`template_own_data.R`), the design simulation reported in the tutorial (`sim_identifiability.R`), the figure script (`make_figures.R`), and the replication script (`wessels_study2.R`).
 
 ## Citation
 
@@ -77,6 +77,6 @@ GPL (>= 3). The data sets `wessels_judgments` and `wessels_items` were collected
 
 ## References
 
-Biesanz, J. C. (2010). The social accuracy model of interpersonal perception: Assessing individual differences in perceptive and expressive accuracy. *Multivariate Behavioral Research, 45*(5), 853–885. https://doi.org/10.1080/00273171.2010.519262
+Biesanz, J. C. (2010). The Social Accuracy Model of interpersonal perception: Assessing individual differences in perceptive and expressive accuracy. *Multivariate Behavioral Research, 45*(5), 853–885. https://doi.org/10.1080/00273171.2010.519262
 
 Wessels, N. M., Zimmermann, J., Biesanz, J. C., & Leising, D. (2020). Differential associations of knowing and liking with accuracy and positivity bias in person perception. *Journal of Personality and Social Psychology, 118*(1), 149–171. https://doi.org/10.1037/pspp0000218
